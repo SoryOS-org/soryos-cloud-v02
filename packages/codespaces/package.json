@@ -24,8 +24,8 @@
     "@soryos/terminal": "*",
     "@soryos/tool": "*",
     "@soryos/workspace": "*",
-    "@vscode/vscode-languageserver": "^9.0.0",
-    "@vscode/vscode-languageserver-protocol": "^3.17.5",
+    "vscode-languageserver": "^9.0.0",
+    "vscode-languageserver-protocol": "^3.17.5",
     "vscode-uri": "^3.0.8",
     "ws": "^8.17.0"
   },
