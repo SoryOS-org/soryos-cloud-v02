@@ -1,0 +1,39 @@
+{
+  "name": "@soryos/database",
+  "version": "1.0.0",
+  "description": "SoryOS Cloud - Real-time Database with Subscriptions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "lint": "eslint . --ext .ts",
+    "test": "vitest",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest --coverage"
+  },
+  "keywords": [
+    "soryos",
+    "database",
+    "realtime",
+    "subscriptions",
+    "convex",
+    "agentic"
+  ],
+  "author": "SoryOS Team",
+  "license": "MIT",
+  "dependencies": {
+    "@soryos/shared": "*",
+    "@soryos/session": "*",
+    "convex": "^1.11.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^4.0.16"
+  },
+  "peerDependencies": {
+    "@soryos/shared": "*"
+  }
+}
