@@ -54,8 +54,7 @@ export async function POST(
 
       try {
         await agentRuntime.run({
-          session,
-          userMessage: content,
+          sessionId: id,
           modelId: body.model,
           agentId: body.agent,
           emit: send,

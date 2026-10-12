@@ -1,3 +1,4 @@
+
 import { SandboxProvider } from "../provider";
 import {
   ProviderId,
@@ -9,9 +10,8 @@ import {
   ProcessHandle,
   FileEntry,
 } from "../types";
-import { getGitHubManager } from "@soryos/github";
-import { GitHubRemoteFilesystem } from "@soryos/filesystem";
-import { execInCodespace, resolveGitHubToken } from "../codespace-exec";
+import { getGitHubClient } from "@soryos/github";
+import { execInCodespace } from "../codespace-exec";
 
 export class GitHubCodespacesProvider implements SandboxProvider {
   readonly id: ProviderId = "github-codespaces";
@@ -22,9 +22,9 @@ export class GitHubCodespacesProvider implements SandboxProvider {
     terminal: true,
     filesystem: true,
     processes: true,
-    interactiveProcess: true,
+    interactiveProcess: false, // execInCodespace is not interactive yet
     persistentWorkspace: true,
-    snapshots: true,
+    snapshots: false,
     pauseResume: true,
     longRunningJobs: true,
     artifacts: true,
@@ -34,31 +34,53 @@ export class GitHubCodespacesProvider implements SandboxProvider {
   };
 
   private sessionId: string = "session";
-  private sandboxId: string | null = null;
-  private repository: string = "";
-  private branch: string = "main";
-  private status: "ready" | "busy" | "paused" | "disconnected" | "error" | "not_configured" = "ready";
-  private files = new Map<string, string>();
-  private cwd = "/workspaces/project";
-  private processes = new Map<string, ProcessHandle>();
+  private codespaceName: string | null = null;
+  private owner: string | null = null;
+  private repo: string | null = null;
+  private status: "ready" | "busy" | "paused" | "disconnected" | "error" | "not_configured" = "not_configured";
+  private cwd: string = "/workspace";
 
-  private getToken(): string | null {
-    return resolveGitHubToken(this.sessionId);
-  }
-
-  async create(options?: { sessionId?: string; workspacePath?: string }): Promise<string> {
-    if (options?.sessionId) {
-      this.sessionId = options.sessionId;
+  private getToken(): string {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) {
+      throw new Error("GitHub token not found in environment variables (GITHUB_TOKEN)");
     }
-    this.sandboxId = `codespace-${this.sessionId}`;
-    this.status = this.getToken() ? "ready" : "not_configured";
-    return this.sandboxId;
+    return token;
   }
 
-  async connect(sandboxId: string): Promise<boolean> {
-    this.sandboxId = sandboxId;
-    this.status = this.getToken() ? "ready" : "not_configured";
-    return true;
+  private getGitHubClient() {
+    return getGitHubClient({ token: this.getToken(), owner: this.owner || '' });
+  }
+
+  async create(options: { sessionId: string, owner: string, repo: string, branch: string }): Promise<string> {
+    this.sessionId = options.sessionId;
+    this.owner = options.owner;
+    this.repo = options.repo;
+    
+    const client = this.getGitHubClient();
+    const result = await client.createCodespace(this.owner, this.repo, { branch: options.branch });
+
+    if (!result.success || !result.data) {
+      this.status = "error";
+      throw new Error(`Failed to create Codespace: ${result.error}`);
+    }
+
+    this.codespaceName = result.data.name;
+    this.status = "ready";
+    this.cwd = `/workspaces/${this.repo}`;
+
+    return this.codespaceName;
+  }
+
+  async connect(sandboxId: string, options: { sessionId: string, owner: string, repo: string }): Promise<boolean> {
+    this.sessionId = options.sessionId;
+    this.codespaceName = sandboxId;
+    this.owner = options.owner;
+    this.repo = options.repo;
+    this.cwd = `/workspaces/${this.repo}`;
+
+    await this.getStatus();
+    return this.status === "ready" || this.status === "paused";
   }
 
   async disconnect(): Promise<void> {
@@ -66,99 +88,135 @@ export class GitHubCodespacesProvider implements SandboxProvider {
   }
 
   async start(): Promise<void> {
-    this.status = this.getToken() ? "ready" : "not_configured";
+    if (!this.codespaceName) throw new Error("No Codespace selected");
+    const client = this.getGitHubClient();
+    await client.startCodespace(this.codespaceName);
+    this.status = "ready";
   }
 
   async stop(): Promise<void> {
-    this.status = "disconnected";
-  }
-
-  async pause(): Promise<void> {
+    if (!this.codespaceName) throw new Error("No Codespace selected");
+    const client = this.getGitHubClient();
+    await client.stopCodespace(this.codespaceName);
     this.status = "paused";
   }
 
+  async pause(): Promise<void> {
+    await this.stop();
+  }
+
   async resume(): Promise<void> {
-    this.status = this.getToken() ? "ready" : "not_configured";
+    await this.start();
   }
 
   async destroy(): Promise<void> {
+    // Deleting a codespace is a destructive action, typically done by the user.
     this.status = "disconnected";
-    this.files.clear();
   }
 
   async getStatus(): Promise<"ready" | "busy" | "paused" | "disconnected" | "error" | "not_configured"> {
-    const token = this.getToken();
-    return token ? "ready" : "not_configured";
+    if (!this.codespaceName) {
+      this.status = "not_configured";
+      return this.status;
+    }
+    try {
+        const client = this.getGitHubClient();
+        const result = await client.getCodespace(this.codespaceName);
+
+        if (!result.success || !result.data) {
+            this.status = "error";
+            return this.status;
+        }
+
+        switch (result.data.state) {
+            case 'Available':
+                this.status = "ready";
+                break;
+            case 'Shutdown':
+                this.status = "paused";
+                break;
+            case 'Starting':
+            case 'Provisioning':
+            case 'Updating':
+            case 'Rebuilding':
+                this.status = "busy";
+                break;
+            default:
+                this.status = "error";
+                break;
+        }
+        return this.status;
+    } catch (e) {
+        this.status = "error";
+        return this.status;
+    }
   }
 
   async getEnvironmentInfo(): Promise<EnvironmentInfo> {
-    const token = this.getToken();
-    return {
-      os: "Linux (GitHub Codespaces Dev Container)",
-      arch: "x86_64",
-      nodeVersion: "v20.18.0",
-      pythonVersion: "Python 3.11.8",
-      gccVersion: "gcc 12.3.0",
-      rustVersion: "rustc 1.80.0",
-      cwd: this.cwd,
-      configured: Boolean(token),
-      configMessage: token
-        ? "GitHub OAuth token actif. Machine Codespace connectée."
-        : "Veuillez connecter votre compte GitHub pour activer Codespaces.",
-    };
+      try {
+        const token = this.getToken();
+        const info = {
+            os: "Linux (GitHub Codespaces Dev Container)",
+            arch: "x86_64",
+            nodeVersion: "v20.18.0", // This should be dynamic
+            pythonVersion: "Python 3.11.8", // This should be dynamic
+            cwd: this.cwd,
+            configured: true,
+            configMessage: "GitHub OAuth token active. Machine Codespace connected.",
+        };
+
+        if (this.codespaceName) {
+            const res = await this.executeCommand("node -v && python --version");
+            const [node, python] = res.stdout.split('\n');
+            info.nodeVersion = node;
+            info.pythonVersion = python;
+        }
+
+        return info;
+      } catch (e) {
+          return {
+            os: "Linux (GitHub Codespaces Dev Container)",
+            arch: "x86_64",
+            nodeVersion: "N/A",
+            pythonVersion: "N/A",
+            cwd: this.cwd,
+            configured: false,
+            configMessage: "Veuillez connecter votre compte GitHub pour activer Codespaces.",
+          }
+      }
   }
 
   async executeCommand(command: string, options?: CommandOptions): Promise<CommandResult> {
-    if (!this.sandboxId || this.sandboxId.startsWith("codespace-")) {
+    if (!this.codespaceName) {
       const msg = "Aucun Codespace sélectionné : choisissez un Codespace pour exécuter des commandes.";
       return { exitCode: 1, stdout: "", stderr: msg, output: msg, isError: true, durationMs: 0 };
     }
+    
     const res = await execInCodespace({
-      codespaceName: this.sandboxId,
+      codespaceName: this.codespaceName,
       command,
-      cwd: options?.cwd || this.cwd,
-      sessionId: this.sessionId,
     });
-    this.cwd = res.cwd;
+    
     return {
-      exitCode: res.exitCode,
+      exitCode: res.exitCode || (res.stderr ? 1: 0),
       stdout: res.stdout,
       stderr: res.stderr,
-      output: res.output,
-      isError: res.isError,
-      durationMs: res.durationMs,
+      output: res.stdout || res.stderr,
+      isError: !!res.stderr,
+      durationMs: 0, // Not provided by this implementation
     };
   }
 
   async readFile(filePath: string): Promise<string> {
-    const clean = filePath.replace(/^\//, "");
-    const found = this.files.get(clean);
-    if (found !== undefined) return found;
-
-    if (this.repository) {
-      try {
-        const fs = new GitHubRemoteFilesystem(this.sessionId, this.repository, this.branch);
-        const remote = await fs.readFile(clean);
-        this.files.set(clean, remote);
-        return remote;
-      } catch {
-        // fallback
-      }
-    }
-    return `// GitHub Codespaces File: ${clean}`;
+    const res = await this.executeCommand(`cat ${filePath}`);
+    if(res.isError) throw new Error(res.stderr);
+    return res.stdout;
   }
 
   async writeFile(filePath: string, content: string): Promise<void> {
-    const clean = filePath.replace(/^\//, "");
-    this.files.set(clean, content);
-    if (this.repository) {
-      try {
-        const fs = new GitHubRemoteFilesystem(this.sessionId, this.repository, this.branch);
-        await fs.writeFile(clean, content);
-      } catch {
-        // async write
-      }
-    }
+    const b64 = Buffer.from(content).toString('base64');
+    const res = await this.executeCommand(`echo '${b64}' | base64 -d > ${filePath}`);
+    if(res.isError) throw new Error(res.stderr);
   }
 
   async editFile(filePath: string, targetContent: string, replacementContent: string): Promise<void> {
@@ -170,75 +228,49 @@ export class GitHubCodespacesProvider implements SandboxProvider {
   }
 
   async deleteFile(filePath: string): Promise<void> {
-    const clean = filePath.replace(/^\//, "");
-    this.files.delete(clean);
-    if (this.repository) {
-      try {
-        const fs = new GitHubRemoteFilesystem(this.sessionId, this.repository, this.branch);
-        await fs.deleteFile(clean);
-      } catch {
-        // ignore
-      }
-    }
+    const res = await this.executeCommand(`rm ${filePath}`);
+    if(res.isError) throw new Error(res.stderr);
   }
 
   async listFiles(directoryPath?: string): Promise<FileEntry[]> {
-    if (this.repository) {
-      try {
-        const fs = new GitHubRemoteFilesystem(this.sessionId, this.repository, this.branch);
-        const remoteEntries = await fs.listFiles(directoryPath);
-        return remoteEntries.map((e) => ({
-          path: e.path,
-          name: e.name,
-          isDirectory: e.type === "directory",
-          sizeBytes: e.size || 0,
-          updatedAt: new Date().toISOString(),
-        }));
-      } catch {
-        // fallback
-      }
-    }
+    const path = directoryPath || '.';
+    const res = await this.executeCommand(`ls -la --full-time ${path}`);
+    if(res.isError) throw new Error(res.stderr);
 
-    const entries: FileEntry[] = [];
-    this.files.forEach((content, path) => {
-      entries.push({
-        path,
-        name: path.split("/").pop() || path,
-        isDirectory: false,
-        sizeBytes: content.length,
-        updatedAt: new Date().toISOString(),
-      });
-    });
-    return entries;
+    return res.stdout
+        .split('\n')
+        .slice(1) // remove total
+        .map(line => {
+            const parts = line.split(/\s+/);
+            if(parts.length < 9) return null;
+            const [permissions, , owner, group, size, month, day, time, ...nameParts] = parts;
+            const name = nameParts.join(' ');
+            const isDirectory = permissions.startsWith('d');
+            return {
+                path: `${path}/${name}`,
+                name,
+                isDirectory,
+                sizeBytes: parseInt(size),
+                updatedAt: new Date(`${month} ${day} ${time}`).toISOString(),
+            };
+        })
+        .filter(e => e !== null && e.name !== '.' && e.name !== '..') as FileEntry[];
   }
 
   async createDirectory(dirPath: string): Promise<void> {
-    if (this.repository) {
-      const fs = new GitHubRemoteFilesystem(this.sessionId, this.repository, this.branch);
-      await fs.createDirectory(dirPath);
-    }
+    const res = await this.executeCommand(`mkdir -p ${dirPath}`);
+    if(res.isError) throw new Error(res.stderr);
   }
 
   async startProcess(command: string): Promise<ProcessHandle> {
-    const procId = `codespace-proc-${Date.now()}`;
-    const handle: ProcessHandle = {
-      processId: procId,
-      command,
-      status: "running",
-      pid: Math.floor(Math.random() * 5000) + 1000,
-    };
-    this.processes.set(procId, handle);
-    return handle;
+      throw new Error("Interactive processes not supported yet in Codespaces provider");
   }
 
   async stopProcess(processId: string): Promise<void> {
-    const proc = this.processes.get(processId);
-    if (proc) {
-      proc.status = "stopped";
-    }
+    throw new Error("Interactive processes not supported yet in Codespaces provider");
   }
 
   async getProcessStatus(processId: string): Promise<ProcessHandle | null> {
-    return this.processes.get(processId) || null;
+    return null;
   }
 }

@@ -460,3 +460,52 @@ export interface SoryOSCommitMetadata {
   commandsExecuted?: number;
   filesModified?: number;
 }
+
+/**
+ * Codespace information
+ */
+export interface Codespace {
+  id: number;
+  name: string;
+  owner: {
+    login: string;
+    id: number;
+  };
+  repository: RepositoryInfo;
+  machine: {
+    display_name: string;
+    name: string;
+    storage_in_bytes: number;
+    cpus: number;
+    memory_in_bytes: number;
+  };
+  state: 'Unknown' | 'Created' | 'Queued' | 'Provisioning' | 'Available' | 'Awaiting' | 'Unavailable' | 'Deleted' | 'Moved' | 'Shutdown' | 'Archived' | 'Starting' | 'ShuttingDown' | 'Failed' | 'Exporting' | 'Updating' | 'Rebuilding';
+  created_at: string;
+  updated_at: string;
+  last_used_at: string;
+  billable_owner: {
+    login: string;
+    id: number;
+  };
+  location: string;
+  git_status: {
+    ahead?: number;
+    behind?: number;
+    has_unpushed_changes?: boolean;
+    has_uncommitted_changes?: boolean;
+    ref?: string;
+  };
+  connection_url: string;
+  web_url: string;
+  environment_id: string;
+}
+
+/**
+ * Options for creating a codespace
+ */
+export interface CreateCodespaceOptions {
+  branch: string;
+  machine?: string;
+  location?: string;
+}
+

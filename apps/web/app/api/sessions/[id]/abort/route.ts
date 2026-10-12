@@ -13,8 +13,7 @@ export async function POST(
   const session = sessionStore.get(id);
 
   if (session) {
-    session.agent_running = false;
-    sessionStore.save(session);
+    sessionStore.update(id, { agent_running: false });
   }
 
   return NextResponse.json({ ok: true });

@@ -12,7 +12,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const session: SessionData = sessionStore.getOrCreate(id);
+  const session = sessionStore.get(id);
+
+  if (!session) {
+    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  }
 
   return NextResponse.json({
     id: session.id,
@@ -31,6 +35,8 @@ export async function GET(
     provider: session.provider,
     messages: session.messages,
     files: session.files || {},
+    openFiles: session.openFiles || [],
+    activeFile: session.activeFile || "",
     preview_url: session.preview_url,
     needs_run: session.needs_run,
     agent_running: session.agent_running,
@@ -42,58 +48,64 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const session: SessionData = sessionStore.getOrCreate(id);
+  const session = sessionStore.get(id);
+
+  if (!session) {
+    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  }
 
   const body = await req.json().catch(() => ({}));
 
+  const updatedSession: Partial<SessionData> = {};
+
   // Update session properties
   if (body.title && typeof body.title === "string") {
-    session.title = body.title.trim();
+    updatedSession.title = body.title.trim();
   }
 
-  if (body.codespaceId) session.codespaceId = body.codespaceId;
-  if (body.repository) session.repository = body.repository;
-  if (body.branch) session.branch = body.branch;
-  if (body.workspaceState) session.workspaceState = body.workspaceState;
-  if (body.workspaceError) session.workspaceError = body.workspaceError;
+  if (body.codespaceId) updatedSession.codespaceId = body.codespaceId;
+  if (body.repository) updatedSession.repository = body.repository;
+  if (body.branch) updatedSession.branch = body.branch;
+  if (body.workspaceState) updatedSession.workspaceState = body.workspaceState;
+  if (body.workspaceError) updatedSession.workspaceError = body.workspaceError;
   
   if (body.environment) {
-    session.environment = body.environment as "sandbox" | "local";
-    if (session.environment === "local") {
-      session.providerId = "local";
+    updatedSession.environment = body.environment as "sandbox" | "local";
+    if (updatedSession.environment === "local") {
+      updatedSession.providerId = "local";
     }
   }
 
   if (body.providerId) {
     const newProviderId = body.providerId as ProviderId;
-    session.providerId = newProviderId;
-    session.environment = newProviderId === "local" ? "local" : "sandbox";
+    updatedSession.providerId = newProviderId;
+    updatedSession.environment = newProviderId === "local" ? "local" : "sandbox";
   }
 
   // Switch sandbox provider if needed (only if providerId is explicitly set and not local)
-  if (session.providerId && session.providerId !== "local") {
+  if (updatedSession.providerId && updatedSession.providerId !== "local") {
     try {
-      const { sandboxId } = await sandboxManager.switchProvider(id, session.providerId);
-      session.sandbox_id = sandboxId;
+      const { sandboxId } = await sandboxManager.switchProvider(id, updatedSession.providerId);
+      updatedSession.sandbox_id = sandboxId;
     } catch {
       // ignore
     }
   }
 
   // Save session
-  sessionStore.save(session);
+  const finalSession = sessionStore.update(id, updatedSession);
 
   return NextResponse.json({
-    id: session.id,
-    title: session.title,
-    environment: session.environment,
-    providerId: session.providerId,
-    sandbox_id: session.sandbox_id,
-    codespaceId: session.codespaceId,
-    repository: session.repository,
-    branch: session.branch,
-    workspaceState: session.workspaceState,
-    cwd: session.cwd,
+    id: finalSession.id,
+    title: finalSession.title,
+    environment: finalSession.environment,
+    providerId: finalSession.providerId,
+    sandbox_id: finalSession.sandbox_id,
+    codespaceId: finalSession.codespaceId,
+    repository: finalSession.repository,
+    branch: finalSession.branch,
+    workspaceState: finalSession.workspaceState,
+    cwd: finalSession.cwd,
   });
 }
 
@@ -102,9 +114,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const deleted = sessionStore.delete(id);
-  if (!deleted) {
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
-  }
+  sessionStore.delete(id);
   return NextResponse.json({ success: true, id });
 }

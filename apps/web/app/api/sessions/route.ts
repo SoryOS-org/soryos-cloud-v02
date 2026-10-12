@@ -8,7 +8,7 @@ import type { SessionData, ProviderId } from "@soryos/schema";
  * Utilise UNIQUEMENT @soryos/* - Aucune logique métier ici.
  */
 export async function GET() {
-  const sessions = sessionStore.list();
+  const sessions = sessionStore.getAll();
   return NextResponse.json({ sessions });
 }
 
@@ -47,6 +47,8 @@ export async function POST(req: NextRequest) {
       created_at: new Date().toISOString(),
       messages: [],
       files: {},
+      openFiles: [],
+      activeFile: "",
       preview_url: null,
       needs_run: false,
       agent_running: false,
@@ -63,7 +65,7 @@ export async function POST(req: NextRequest) {
       });
     }
     
-    sessionStore.save(session);
+    sessionStore.create(session);
     
     return NextResponse.json({
       id: session.id,

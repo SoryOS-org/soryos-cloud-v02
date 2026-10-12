@@ -36,10 +36,7 @@ export async function POST(
       }
 
       try {
-        await agentRuntime.run({
-          session,
-          emit: send,
-        });
+        await agentRuntime.run({ sessionId: id, emit: send });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         send({ type: "error", message: msg });

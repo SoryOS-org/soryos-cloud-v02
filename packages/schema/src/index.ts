@@ -137,6 +137,8 @@ export interface SessionData {
   created_at: string;
   messages: ChatMessage[];
   files: Record<string, string>;
+  openFiles: string[];
+  activeFile: string;
   preview_url: string | null;
   needs_run: boolean;
   agent_running: boolean;

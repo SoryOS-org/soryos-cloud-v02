@@ -41,8 +41,7 @@ export function createAgentStream(
       try {
         // Délégation vers @soryos/agent
         await agentRuntime.run({
-          session,
-          userMessage,
+          sessionId: session.id,
           modelId,
           agentId,
           emit: send,

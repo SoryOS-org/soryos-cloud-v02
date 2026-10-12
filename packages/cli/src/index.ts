@@ -7,6 +7,7 @@
 import { agentRuntime } from "@soryos/agent";
 import { globalEventBus } from "@soryos/bus";
 import { AgentEventPayload, SessionData } from "@soryos/schema";
+import { sessionStore } from "@soryos/session";
 
 const colors = {
   reset: "\x1b[0m",
@@ -85,7 +86,16 @@ ${colors.bold}OPTIONS:${colors.reset}
     needs_run: false,
     agent_running: false,
     cwd: process.cwd(),
+    openFiles: [],
+    activeFile: "",
   };
+  session.messages.push({
+    id: `user-${Date.now()}`,
+    role: "user",
+    content: prompt,
+    created_at: new Date().toISOString(),
+  });
+  sessionStore.save(session);
 
   console.log(`\n${colors.bold}${colors.magenta}=== SoryOS-Code Autonomous Engine (CLI) ===${colors.reset}`);
   console.log(`${colors.dim}Session : ${sessionId}${colors.reset}`);
@@ -132,9 +142,8 @@ ${colors.bold}OPTIONS:${colors.reset}
     }
   });
 
-  const res = await agentRuntime.run({
-    session,
-    userMessage: prompt,
+  await agentRuntime.run({
+    sessionId: session.id,
     modelId,
     agentId,
     apiKey,
@@ -144,10 +153,6 @@ ${colors.bold}OPTIONS:${colors.reset}
       }
     },
   });
-
-  if (res.exitCode !== 0) {
-    process.exit(1);
-  }
 }
 
 if (require.main === module) {

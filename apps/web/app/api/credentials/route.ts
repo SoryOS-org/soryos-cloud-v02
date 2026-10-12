@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     // 1 & 2. Real connection test: sends a tiny prompt to the provider
     if (action === "test" || action === "test_ai") {
       const status = credentialManager.getProviderStatus(providerId, sessionId);
-      const ping = await pingProvider(providerId, modelId, sessionId, prompt || undefined);
+      const ping = await pingProvider({ providerId, modelId, sessionId, prompt: prompt || undefined });
       const authFailed = ping.httpStatus === 401 || ping.httpStatus === 403;
       const diagnostics = {
         providerId,

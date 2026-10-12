@@ -1,3 +1,4 @@
+
 /**
  * @soryos/github
  * GitHub API Client - Robust GitHub integration with retries and error handling
@@ -22,6 +23,8 @@ import {
   WebhookConfig,
   WebhookEventType,
   SoryOSCommitMetadata,
+  Codespace,
+  CreateCodespaceOptions,
 } from './types';
 
 /**
@@ -105,6 +108,10 @@ export class GitHubClient {
         );
       }
 
+      if (response.status === 204) {
+        return {} as T;
+      }
+
       return response.json() as Promise<T>;
 
     } catch (error) {
@@ -117,6 +124,127 @@ export class GitHubClient {
     }
   }
 
+  // ... [existing methods]
+
+  /**
+   * List codespaces for the authenticated user
+   */
+  async listCodespacesForUser(): Promise<GitHubOperationResult<Codespace[]>> {
+    try {
+      const data = await this.request<{ codespaces: Codespace[] }>('GET', '/user/codespaces');
+      return { success: true, data: data.codespaces, timestamp: Date.now() };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: Date.now(),
+      };
+    }
+  }
+
+  /**
+   * List codespaces in a repository
+   */
+  async listCodespacesInRepo(owner: string, repo: string): Promise<GitHubOperationResult<Codespace[]>> {
+    try {
+      const data = await this.request<{ codespaces: Codespace[] }>(
+        'GET',
+        `/repos/${owner}/${repo}/codespaces`
+      );
+      return { success: true, data: data.codespaces, timestamp: Date.now() };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: Date.now(),
+      };
+    }
+  }
+
+  /**
+   * Create a new codespace
+   */
+  async createCodespace(
+    owner: string,
+    repo: string,
+    options: CreateCodespaceOptions
+  ): Promise<GitHubOperationResult<Codespace>> {
+    try {
+      const data = await this.request<Codespace>(
+        'POST',
+        `/repos/${owner}/${repo}/codespaces`,
+        {
+          ref: options.branch,
+          machine: options.machine,
+          location: options.location || 'WestUs2',
+        }
+      );
+      return { success: true, data, timestamp: Date.now() };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: Date.now(),
+      };
+    }
+  }
+
+  /**
+   * Get codespace details
+   */
+  async getCodespace(codespaceName: string): Promise<GitHubOperationResult<Codespace>> {
+    try {
+      const data = await this.request<Codespace>(
+        'GET',
+        `/user/codespaces/${codespaceName}`
+      );
+      return { success: true, data, timestamp: Date.now() };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: Date.now(),
+      };
+    }
+  }
+
+  /**
+   * Start a codespace
+   */
+  async startCodespace(codespaceName: string): Promise<GitHubOperationResult<Codespace>> {
+    try {
+      const data = await this.request<Codespace>(
+        'POST',
+        `/user/codespaces/${codespaceName}/start`
+      );
+      return { success: true, data, timestamp: Date.now() };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: Date.now(),
+      };
+    }
+  }
+
+  /**
+   * Stop a codespace
+   */
+  async stopCodespace(codespaceName: string): Promise<GitHubOperationResult<Codespace>> {
+    try {
+      const data = await this.request<Codespace>(
+        'POST',
+        `/user/codespaces/${codespaceName}/stop`
+      );
+      return { success: true, data, timestamp: Date.now() };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: Date.now(),
+      };
+    }
+  }
   /**
    * Get repository information
    */
@@ -792,3 +920,4 @@ export function getGitHubClient(config?: GitHubConfig): GitHubClient {
 export function setGitHubClient(client: GitHubClient): void {
   globalGitHubClient = client;
 }
+

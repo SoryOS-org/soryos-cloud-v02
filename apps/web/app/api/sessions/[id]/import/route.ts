@@ -34,8 +34,8 @@ export async function POST(
       .replace(/^\/+/, "");
 
     const content = await file.text();
-    session.files[cleanPath] = content;
-    sessionStore.save(session);
+    const files = { ...session.files, [cleanPath]: content };
+    sessionStore.update(id, { files });
 
     return NextResponse.json({
       success: true,

@@ -1,3 +1,4 @@
+
 /**
  * @soryos/filesystem
  * Filesystem operations including remote providers.
@@ -29,5 +30,7 @@ export class FileSystem {
     }
   }
 }
+
+export const fileManager = new FileSystem();
 
 export * from "./remote-provider";

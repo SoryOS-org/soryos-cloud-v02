@@ -39,8 +39,8 @@ export async function GET(
     try {
       const fs = new GitHubRemoteFilesystem(id, session.repository, session.branch || "main");
       const content = await fs.readFile(cleanPath);
-      session.files[cleanPath] = content;
-      sessionStore.save(session);
+      const files = { ...session.files, [cleanPath]: content };
+      sessionStore.update(id, { files });
       return new NextResponse(content, {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
@@ -72,8 +72,8 @@ export async function PUT(
     .replace(/^\/+/, "");
 
   const content = await req.text();
-  session.files[cleanPath] = content;
-  sessionStore.save(session);
+  const files = { ...session.files, [cleanPath]: content };
+  sessionStore.update(id, { files });
 
   return NextResponse.json({ success: true, path: cleanPath });
 }
@@ -95,8 +95,9 @@ export async function DELETE(
     .replace(/^\.\//, "")
     .replace(/^\/+/, "");
 
-  delete session.files[cleanPath];
-  sessionStore.save(session);
+  const files = { ...session.files };
+  delete files[cleanPath];
+  sessionStore.update(id, { files });
 
   return NextResponse.json({ success: true, path: cleanPath });
 }
