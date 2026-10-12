@@ -145,7 +145,7 @@ export async function streamChat(options: StreamChatOptions): Promise<string> {
       signal: options.signal,
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": cred.apiKey,
+        "x-api-key": cred.apiKey ?? "",
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
