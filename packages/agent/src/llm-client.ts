@@ -115,10 +115,10 @@ async function readSSE(
 
 export async function streamChat(options: StreamChatOptions): Promise<string> {
   let providerId = normalizeProviderId(options.providerId) || "opencode-zen";
-  let cred: { isConfigured: boolean; apiKey?: string | null } =
+  let cred: { isConfigured: boolean; apiKey?: string } =
     providerId === "lovable"
       ? { isConfigured: false }
-      : credentialManager.resolveCredentials(providerId, options.sessionId);
+      : (credentialManager.resolveCredentials(providerId, options.sessionId) as { isConfigured: boolean; apiKey?: string });
   let model = resolveModelId(providerId, options.model);
   if (!cred.isConfigured || !cred.apiKey) {
     const builtinKey = process.env.LOVABLE_API_KEY;
@@ -145,7 +145,7 @@ export async function streamChat(options: StreamChatOptions): Promise<string> {
       signal: options.signal,
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": cred.apiKey,
+        "x-api-key": cred.apiKey ?? "",
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
