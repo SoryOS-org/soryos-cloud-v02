@@ -1,0 +1,23 @@
+{
+  "name": "@soryos/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@soryos/auth": "*",
+    "@soryos/bus": "*",
+    "@soryos/config": "*",
+    "@soryos/core": "*",
+    "@soryos/execution": "*",
+    "@soryos/filesystem": "*",
+    "@soryos/git": "*",
+    "@soryos/permissions": "*",
+    "@soryos/provider": "*",
+    "@soryos/pty": "*",
+    "@soryos/schema": "*",
+    "@soryos/session": "*",
+    "@soryos/tool": "*",
+    "@soryos/workspace": "*"
+  }
+}

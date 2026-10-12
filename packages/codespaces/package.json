@@ -1,0 +1,38 @@
+{
+  "name": "@soryos/codespaces",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --noEmit && echo 'Build successful'",
+    "test": "tsx src/__tests__/index.test.ts"
+  },
+  "dependencies": {
+    "@soryos/agent": "*",
+    "@soryos/bus": "*",
+    "@soryos/core": "*",
+    "@soryos/execution": "*",
+    "@soryos/filesystem": "*",
+    "@soryos/git": "*",
+    "@soryos/permissions": "*",
+    "@soryos/provider": "*",
+    "@soryos/sandbox": "*",
+    "@soryos/schema": "*",
+    "@soryos/session": "*",
+    "@soryos/terminal": "*",
+    "@soryos/tool": "*",
+    "@soryos/workspace": "*",
+    "@vscode/vscode-languageserver": "^9.0.0",
+    "@vscode/vscode-languageserver-protocol": "^3.17.5",
+    "vscode-uri": "^3.0.8",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/ws": "^8.5.9",
+    "tsx": "^4.7.0",
+    "typescript": "^5.8.3"
+  }
+}
