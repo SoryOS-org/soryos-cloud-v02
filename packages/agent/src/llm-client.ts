@@ -33,7 +33,7 @@ const OPENAI_COMPATIBLE_ENDPOINTS: Record<string, string> = {
 };
 
 /** Built-in fallback used when the chosen provider has no API key configured. */
-const LOVABLE_FALLBACK_MODEL = "google/gemini-2.5-flash";
+const LOVABLE_FALLBACK_MODEL = "openai/gpt-6-astra";
 
 const PROVIDER_ALIASES: Record<string, string> = {
   gemini: "google",
@@ -128,8 +128,7 @@ export async function streamChat(options: StreamChatOptions): Promise<string> {
       );
     }
     cred = { isConfigured: true, apiKey: builtinKey };
-    if (providerId === "google" && model.startsWith("gemini-2.5")) model = `google/${model}`;
-    else model = LOVABLE_FALLBACK_MODEL;
+    model = LOVABLE_FALLBACK_MODEL;
     providerId = "lovable";
   }
   let full = "";
