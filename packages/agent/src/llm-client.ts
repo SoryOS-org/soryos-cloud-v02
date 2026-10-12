@@ -29,7 +29,11 @@ const OPENAI_COMPATIBLE_ENDPOINTS: Record<string, string> = {
   deepseek: "https://api.deepseek.com/v1",
   grok: "https://api.x.ai/v1",
   "opencode-zen": "https://zen.opencode.ai/api/v1",
+  lovable: "https://ai.gateway.lovable.dev/v1",
 };
+
+/** Built-in fallback used when the chosen provider has no API key configured. */
+const LOVABLE_FALLBACK_MODEL = "google/gemini-2.5-flash";
 
 const PROVIDER_ALIASES: Record<string, string> = {
   gemini: "google",
@@ -42,15 +46,16 @@ const PROVIDER_ALIASES: Record<string, string> = {
 
 /** Retired / renamed model ids mapped to their current equivalent. */
 const MODEL_ALIASES: Record<string, string> = {
-  "gemini-2.5-flash": "gemini-3.8-flash",
-  "gemini-2.5-pro": "gemini-3.8-pro",
-  "gemini-2.0-flash": "gemini-3.8-flash",
+  "gemini-2.0-flash": "gemini-2.5-flash",
+  "gemini-3.0-flash": "gemini-2.5-flash",
+  "gemini-3.0-pro": "gemini-2.5-pro",
+  "gemini-3.1-pro": "gemini-2.5-pro",
   "codestral-2501": "codestral-latest",
   "mistral-large-2411": "mistral-large-latest",
 };
 
 export const DEFAULT_PROVIDER_MODELS: Record<string, string> = {
-  google: "gemini-3.8-flash",
+  google: "gemini-2.5-flash",
   mistral: "codestral-latest",
   openai: "gpt-4o-mini",
   anthropic: "claude-sonnet-4-5",
@@ -109,15 +114,24 @@ async function readSSE(
 }
 
 export async function streamChat(options: StreamChatOptions): Promise<string> {
-  const providerId = normalizeProviderId(options.providerId) || "opencode-zen";
-  const cred = credentialManager.resolveCredentials(providerId, options.sessionId);
+  let providerId = normalizeProviderId(options.providerId) || "opencode-zen";
+  let cred: { isConfigured: boolean; apiKey?: string | null } =
+    providerId === "lovable"
+      ? { isConfigured: false }
+      : credentialManager.resolveCredentials(providerId, options.sessionId);
+  let model = resolveModelId(providerId, options.model);
   if (!cred.isConfigured || !cred.apiKey) {
-    throw new Error(
-      `Aucune clé API configurée pour « ${providerId} ». Ajoutez-la dans Paramètres → Fournisseurs IA.`,
-    );
+    const builtinKey = process.env.LOVABLE_API_KEY;
+    if (!builtinKey) {
+      throw new Error(
+        `Aucune clé API configurée pour « ${providerId} ». Ajoutez-la dans Paramètres → Fournisseurs IA.`,
+      );
+    }
+    cred = { isConfigured: true, apiKey: builtinKey };
+    if (providerId === "google" && model.startsWith("gemini-2.5")) model = `google/${model}`;
+    else model = LOVABLE_FALLBACK_MODEL;
+    providerId = "lovable";
   }
-
-  const model = resolveModelId(providerId, options.model);
   let full = "";
   const emit = (text: string) => {
     if (!text) return;
