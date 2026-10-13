@@ -61,7 +61,70 @@ import {
  * README Template Generator
  */
 export class READMEGenerator {
-  // ... [READMEGenerator implementation remains the same]
+  private static readonly DEFAULT_COMMANDS: Record<READMETemplateType, { install: string; run: string }> = {
+    nodejs: { install: 'npm install', run: 'npm start' },
+    react: { install: 'npm install', run: 'npm start' },
+    nextjs: { install: 'npm install', run: 'npm run dev' },
+    typescript: { install: 'npm install', run: 'npm run build' },
+    python: { install: 'pip install -r requirements.txt', run: 'python main.py' },
+    go: { install: 'go mod download', run: 'go run .' },
+    rust: { install: 'cargo fetch', run: 'cargo run' },
+    java: { install: './gradlew build', run: './gradlew run' },
+    csharp: { install: 'dotnet restore', run: 'dotnet run' },
+    php: { install: 'composer install', run: 'php -S localhost:8000' },
+    ruby: { install: 'bundle install', run: 'bundle exec ruby main.rb' },
+    swift: { install: 'swift package resolve', run: 'swift run' },
+    kotlin: { install: './gradlew build', run: './gradlew run' },
+    generic: { install: 'npm install', run: 'npm start' },
+  };
+
+  static createSoryOSREADME(options: AutoREADMEOptions): string {
+    const templateType: READMETemplateType =
+      typeof options.template === 'string'
+        ? options.template
+        : options.template?.type ?? 'generic';
+    const defaults = this.DEFAULT_COMMANDS[templateType];
+    const lines: string[] = [`# ${options.projectName}`];
+
+    if (options.description) {
+      lines.push('', options.description);
+    }
+
+    if (options.technologies && options.technologies.length > 0) {
+      lines.push('', '## Technologies', '', ...options.technologies.map((tech) => `- ${tech}`));
+    }
+
+    if (options.features && options.features.length > 0) {
+      lines.push('', '## Features', '', ...options.features.map((feature) => `- ${feature}`));
+    }
+
+    const installation = options.installation ?? defaults.install;
+    lines.push('', '## Installation', '', '```bash', installation, '```');
+
+    const usage = options.usage ?? defaults.run;
+    lines.push('', '## Usage', '', '```bash', usage, '```');
+
+    if (options.customSections) {
+      for (const [title, content] of Object.entries(options.customSections)) {
+        lines.push('', `## ${title}`, '', content);
+      }
+    }
+
+    if (options.contributing) {
+      lines.push('', '## Contributing', '', options.contributing);
+    }
+
+    if (options.license) {
+      lines.push('', '## License', '', options.license);
+    }
+
+    if (options.customContent) {
+      lines.push('', options.customContent);
+    }
+
+    lines.push('', '---', '', 'Built with [SoryOS Code](https://github.com/SoryOS-org)');
+    return lines.join('\n');
+  }
 }
 
 /**

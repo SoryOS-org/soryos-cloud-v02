@@ -39,7 +39,10 @@ class AgentRuntime extends EventEmitter {
       if (!session) {
         throw new Error(`Session not found: ${options.sessionId}`);
       }
-      await planner.planAndExecute(session, (event) => this.emit('event', event));
+      await planner.planAndExecute(session, (event) => {
+        this.emit('event', event);
+        options.emit?.(event);
+      });
     } catch (error) {
       if (error instanceof Error) {
         this.state.lastError = error;

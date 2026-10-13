@@ -26,7 +26,8 @@ export type VisionModel =
   | 'claude-3-opus'
   | 'claude-4'
   | 'claude-4-sonnet'
-  | 'claude-4-opus';
+  | 'claude-4-opus'
+  | 'local';
 
 /**
  * Analysis types for vision

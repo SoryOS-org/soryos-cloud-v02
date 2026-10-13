@@ -6,6 +6,7 @@
 import {
   VisionProvider,
   VisionModel,
+  VisionTaskType,
   VisionAnalysisOptions,
   VisionAnalysisResult,
   VisionConfig,
@@ -84,7 +85,7 @@ export abstract class BaseVisionProvider implements VisionProviderInterface {
       imageBlob = image instanceof Blob ? image : new Blob([image]);
       format = this.getFormatFromBlob(imageBlob);
     } else if (image instanceof Uint8Array) {
-      imageBlob = new Blob([image]);
+      imageBlob = new Blob([image as unknown as BlobPart]);
       format = 'unknown';
     } else if (typeof image === 'string') {
       if (image.startsWith('data:')) {
@@ -255,8 +256,8 @@ export abstract class BaseVisionProvider implements VisionProviderInterface {
   /**
    * Get task type from analysis type
    */
-  protected getTaskTypeFromAnalysis(analysisType: string): string {
-    const mapping: Record<string, string> = {
+  protected getTaskTypeFromAnalysis(analysisType: string): VisionTaskType {
+    const mapping: Record<string, VisionTaskType> = {
       'description': 'describe',
       'ocr': 'extract_text',
       'objects': 'detect_objects',

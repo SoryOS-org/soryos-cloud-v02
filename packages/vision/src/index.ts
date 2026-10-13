@@ -243,14 +243,7 @@ export function initializeVision(
 
 // Export all types for convenience
 export type {
-  VisionProvider,
-  VisionModel,
-  VisionAnalysisType,
-  VisionTaskType,
   VisionProcessingState,
-  VisionConfig,
-  VisionAnalysisOptions,
-  VisionAnalysisResult,
   VisionResult,
   BoundingBox,
   OCRResult,
@@ -277,4 +270,4 @@ export type {
   VisionSessionState,
   ImagePreprocessingOptions,
   VisionProviderConfig,
-};
+} from './types';

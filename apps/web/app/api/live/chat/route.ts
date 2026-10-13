@@ -1,38 +1,45 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { toolRegistry } from '@soryos/tool';
 import { contextBuilder, streamChat } from '@soryos/agent';
 import { sessionStore } from '@soryos/session';
 import { sandboxManager } from '@soryos/sandbox';
 
 export async function POST(req: NextRequest) {
-  const { sessionId, message, agentMode = 'build' } = await req.json();
+  const { sessionId, message } = await req.json();
 
   if (!sessionId || !message) {
     return NextResponse.json({ error: 'sessionId and message are required' }, { status: 400 });
   }
 
   try {
-    const session = sessionStore.getOrCreate(sessionId);
-    const sandbox = await sandboxManager.getSandbox(session.sandbox_id);
-    if (!sandbox) {
+    sessionStore.getOrCreate(sessionId);
+    const activeProviderId = sandboxManager.getActiveProviderId(sessionId);
+    if (!activeProviderId) {
       return NextResponse.json({ error: 'Sandbox not found' }, { status: 404 });
     }
 
-    const builtContext = await contextBuilder.buildContextForRequest(sessionId, message, {});
+    const builtContext = await contextBuilder.buildContext({ sessionId, userRequest: message });
+
+    const contextBlock = builtContext.contextItems
+      .map((item) => `[${item.type}] ${item.source}\n${item.content}`)
+      .join('\n\n');
+    const prompt = contextBlock ? `${message}\n\nContext:\n${contextBlock}` : message;
 
     const stream = new ReadableStream({
       async start(controller) {
-        await streamChat({
-          providerId: 'openai', // Or resolve from session/settings
-          model: 'gpt-4o-mini',
-          messages: builtContext.messages.map(m => ({ role: m.role as any, content: m.content })),
-          sessionId,
-          onDelta: (text) => {
-            controller.enqueue(new TextEncoder().encode(text));
-          },
-        });
-        controller.close();
+        try {
+          for await (const chunk of streamChat({ prompt })) {
+            if (chunk.error) {
+              controller.enqueue(new TextEncoder().encode(`\n[error] ${chunk.error}`));
+              continue;
+            }
+            if (chunk.text) {
+              controller.enqueue(new TextEncoder().encode(chunk.text));
+            }
+          }
+        } finally {
+          controller.close();
+        }
       },
     });
 

@@ -102,7 +102,7 @@ export class GitHubClient {
       }
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
         throw new Error(
           `GitHub API error ${response.status}: ${errorData.message || response.statusText}`
         );

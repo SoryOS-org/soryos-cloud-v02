@@ -30,7 +30,8 @@ export function createNewSession(
   const id = `session-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const env = providerId === "local" ? "local" : "sandbox";
   const ws = workspaceManager.getOrCreateWorkspace(id, { environment: env, providerId: providerId });
-  const session = sessionStore.getOrCreate(id, title);
+  const session = sessionStore.getOrCreate(id);
+  session.title = title;
   session.environment = ws.environment;
   session.providerId = ws.providerId;
   if (model) session.model = model;

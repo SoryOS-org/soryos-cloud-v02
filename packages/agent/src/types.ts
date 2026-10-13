@@ -1,8 +1,12 @@
 
 export interface AgentRunOptions {
   sessionId: string;
-  messageId: string;
+  messageId?: string;
   streaming?: boolean;
+  modelId?: string;
+  agentId?: string;
+  apiKey?: string;
+  emit?: (event: any) => void;
 }
 
 export interface AgentRunResult {
@@ -52,6 +56,16 @@ export interface SubagentDefinition {
   requiredTools: string[];
 }
 
+export interface AgentDefinition {
+  id: string;
+  name: string;
+  description: string;
+  model: string;
+  provider: string;
+  capabilities: string[];
+  systemPrompt: string;
+}
+
 export interface BuiltContext {
   messages: any[];
   contextItems: ContextItem[];
@@ -89,6 +103,7 @@ export interface Plan {
   name: string;
   description: string;
   sessionId: string;
+  userRequest?: string;
   workspaceId?: string;
   projectId?: string;
   steps: PlanStep[];

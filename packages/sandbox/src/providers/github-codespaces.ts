@@ -72,11 +72,11 @@ export class GitHubCodespacesProvider implements SandboxProvider {
     return this.codespaceName;
   }
 
-  async connect(sandboxId: string, options: { sessionId: string, owner: string, repo: string }): Promise<boolean> {
-    this.sessionId = options.sessionId;
+  async connect(sandboxId: string, options?: { sessionId?: string, owner?: string, repo?: string }): Promise<boolean> {
+    this.sessionId = options?.sessionId ?? this.sessionId;
     this.codespaceName = sandboxId;
-    this.owner = options.owner;
-    this.repo = options.repo;
+    this.owner = options?.owner ?? this.owner;
+    this.repo = options?.repo ?? this.repo;
     this.cwd = `/workspaces/${this.repo}`;
 
     await this.getStatus();
@@ -198,7 +198,7 @@ export class GitHubCodespacesProvider implements SandboxProvider {
     });
     
     return {
-      exitCode: res.exitCode || (res.stderr ? 1: 0),
+      exitCode: res.stderr ? 1 : 0,
       stdout: res.stdout,
       stderr: res.stderr,
       output: res.stdout || res.stderr,

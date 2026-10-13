@@ -1,5 +1,6 @@
 
 export * from './types';
+export * from './config';
 export * from './runtime';
 export * from './context-builder';
 export * from './subagents';

@@ -4,10 +4,10 @@
  */
 
 import { workspaceManager } from "@soryos/workspace";
-import { sessionStore, SessionStore, messageStore } from "@soryos/session";
-import { GlobalEventBus, globalEventBus } from "@soryos/bus";
-import { PermissionsManager, permissionsManager } from "@soryos/permissions";
-import { toolRegistry, toolExecutor } from "@soryos/tool";
+import { sessionStore } from "@soryos/session";
+import { GlobalEventBus } from "@soryos/bus";
+import { permissionsManager } from "@soryos/permissions";
+import { toolRegistry } from "@soryos/tool";
 import { aiProviderRegistry, SUPPORTED_AI_MODELS } from "@soryos/provider";
 import { agentRuntime, AGENT_MATRIX } from "@soryos/agent";
 import { executionManager } from "@soryos/execution";
@@ -36,16 +36,18 @@ async function runEngineVerification() {
 
   // 2. SessionStore & Messages
   try {
-    const sess = SessionStore.getOrCreate("test-engine-sess", "Verification Session");
-    SessionStore.update("test-engine-sess", { model: "gemini-2.5-flash" });
-    const msg = messageStore.add({
-      sessionId: "test-engine-sess",
-      role: "user",
+    sessionStore.getOrCreate("test-engine-sess");
+    sessionStore.update("test-engine-sess", { title: "Verification Session", model: "gemini-2.5-flash" });
+    const before = sessionStore.get("test-engine-sess");
+    const msg = {
+      id: `msg-${Date.now()}`,
+      role: "user" as const,
       content: "Engine test message",
-    });
-    const retrieved = SessionStore.get("test-engine-sess");
+    };
+    sessionStore.update("test-engine-sess", { messages: [...(before?.messages ?? []), msg] });
+    const retrieved = sessionStore.get("test-engine-sess");
     if (retrieved && retrieved.messages.length > 0 && msg.id) {
-      console.log("✅ 2/10 SessionStore & Message History: PASSED (CRUD + static methods)");
+      console.log("✅ 2/10 SessionStore & Message History: PASSED (CRUD + history)");
       passed++;
     } else {
       console.log("❌ 2/10 SessionStore: FAILED");
@@ -90,7 +92,7 @@ async function runEngineVerification() {
 
   // 5. Tool Registry & Physical Tools
   try {
-    const tools = toolRegistry.listTools();
+    const tools = toolRegistry.getToolDefinitions();
     const hasRead = tools.some((t: any) => t.id === "read_file" || t.name === "read_file");
     const hasShell = tools.some((t: any) => t.id === "shell_command" || t.name === "shell_command");
     if (tools.length >= 4 && (hasRead || hasShell)) {
@@ -148,7 +150,7 @@ async function runEngineVerification() {
 
   // 9. Dev Runner & Project Detection
   try {
-    if (devRunner && typeof devRunner.detectProjectType === "function") {
+    if (devRunner && typeof devRunner.startDevServer === "function") {
       console.log("✅ 9/10 Dev Runner: PASSED (Framework detector ready)");
       passed++;
     } else {

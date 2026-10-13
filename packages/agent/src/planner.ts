@@ -66,40 +66,47 @@ export class Planner {
       const context = await this.contextBuilder.buildContext({ sessionId, userRequest });
       const tools: ToolDefinition[] = this.toolRegistry.getToolDefinitions();
 
-      const systemPrompt = PLANNER_SYSTEM_PROMPT.replace(
-        '${tools.map((t: ToolDefinition) => t.name).join(', ')}',
-        tools.map((t: ToolDefinition) => t.name).join(', ')
-      );
+      const systemPrompt = `${PLANNER_SYSTEM_PROMPT}\n\n# Available Tools\n${tools.map((t: ToolDefinition) => t.name).join(', ')}`;
       
       const fullPrompt = `Context:\n${context.contextItems.map(i => i.content).join('\n')}\n\nUser Request: ${userRequest}\n\nPlan:`;
 
       const modelResponse = await this.llmClient.generate({
         prompt: fullPrompt,
-        system: systemPrompt,
+        systemPrompt: systemPrompt,
         model: sessionStore.get(sessionId)?.model || 'claude-3-opus-20240229',
-        json: true,
       });
 
-      if (!modelResponse.content) {
+      if (!modelResponse.text) {
         throw new Error('LLM failed to generate a plan. The response was empty.');
       }
 
       // The model might return a markdown code block for JSON, so we strip it.
-      const jsonString = modelResponse.content.replace(/```json/g, '').replace(/```/g, '').trim();
-      const steps: PlanStep[] = JSON.parse(jsonString);
+      const jsonString = modelResponse.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const rawSteps: Array<Record<string, any>> = JSON.parse(jsonString);
+
+      const steps: PlanStep[] = rawSteps.map((step, index) => ({
+        id: `${planId}-step-${index}`,
+        name: step.name || `Step ${index + 1}`,
+        description: step.description || '',
+        type: step.type === 'tool' ? 'tool' : 'task',
+        tool: step.tool || step.toolName,
+        parameters: step.parameters,
+        status: 'pending',
+      }));
 
       const plan: Plan = {
         id: planId,
+        name: userRequest.slice(0, 80),
+        description: userRequest,
         sessionId,
         userRequest,
-        steps: steps.map((step, index) => ({
-          ...step,
-          id: `${planId}-step-${index}`,
-          status: 'pending',
-          planId,
-        })),
+        steps,
         status: 'pending',
-        currentStep: 0,
+        currentStepIndex: 0,
+        progress: 0,
+        createdAt: Date.now(),
+        results: {},
+        errors: {},
       };
 
       this.plans.set(planId, plan);
@@ -122,9 +129,9 @@ export class Planner {
     plan.status = 'running';
     emit({ type: 'plan_update', plan });
 
-    for (let i = plan.currentStep || 0; i < plan.steps.length; i++) {
+    for (let i = plan.currentStepIndex || 0; i < plan.steps.length; i++) {
       const step = plan.steps[i];
-      plan.currentStep = i;
+      plan.currentStepIndex = i;
 
       const session = sessionStore.get(sessionId);
       if (!session || session.agent_running === false) {
@@ -141,27 +148,32 @@ export class Planner {
         emit({ type: 'thought', message: `Thinking about the next step: ${step.name}` });
         
         if (step.type === 'tool') {
-          emit({ type: 'thought', message: `Executing tool: \`${step.toolName}\`...` });
-          const result = await this.toolExecutor.execute(step.toolName, step.parameters, sessionId);
+          if (!step.tool) {
+            throw new Error(`Tool step "${step.name}" is missing a tool name.`);
+          }
+          emit({ type: 'thought', message: `Executing tool: \`${step.tool}\`...` });
+          const provider = await executionManager.getProvider(sessionId, 'local');
+          const result = await this.toolExecutor.execute(step.tool, step.parameters, provider, session, 'build');
           
-          step.output = typeof result.output === 'string' ? result.output : JSON.stringify(result.output, null, 2);
+          step.result = typeof result.output === 'string' ? result.output : JSON.stringify(result.output, null, 2);
           if (result.isError) {
-            throw new Error(step.output);
+            throw new Error(String(step.result));
           }
         } else if (step.type === 'task') {
-          step.output = `Task "${step.name}" is considered complete.`;
+          step.result = `Task "${step.name}" is considered complete.`;
         } else {
           throw new Error(`Unknown step type: "${step.type}"`);
         }
         
-        step.status = 'success';
+        step.status = 'completed';
         emit({ type: 'step_update', step });
 
       } catch (error: any) {
         console.error(`[Planner] Error executing step ${step.id} for session ${sessionId}:`, error);
-        step.status = 'error';
+        step.status = 'failed';
         step.error = error.message;
-        plan.status = 'error';
+        plan.status = 'failed';
+        plan.errors[step.id] = error.message;
         emit({ type: 'step_update', step });
         emit({ type: 'plan_update', plan });
         emit({ type: 'error', message: `Execution failed on step "${step.name}": ${error.message}` });
@@ -169,7 +181,7 @@ export class Planner {
       }
     }
 
-    plan.status = 'success';
+    plan.status = 'completed';
     emit({ type: 'plan_update', plan });
     emit({ type: 'done', message: "All steps completed successfully." });
   }
@@ -181,7 +193,7 @@ export class Planner {
       return;
     }
 
-    console.log(`[Planner] Resuming plan ${planId} from step ${plan.currentStep || 0}`);
+    console.log(`[Planner] Resuming plan ${planId} from step ${plan.currentStepIndex || 0}`);
     sessionStore.update(sessionId, { agent_running: true });
     
     await this.executePlan(plan.id, sessionId, emit);

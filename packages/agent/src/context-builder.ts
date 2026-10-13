@@ -27,7 +27,7 @@ export class ContextBuilder {
     // Add open files to the context
     for (const filePath of session.openFiles || []) {
       try {
-        const content = await fileManager.readFile(filePath, options.sessionId);
+        const content = await fileManager.readFile(filePath);
         const truncatedContent = content.substring(0, MAX_FILE_TOKENS);
         contextItems.push({ type: 'file', content: `File: ${filePath}\n\n${truncatedContent}`, source: filePath });
       } catch (error) {
@@ -42,7 +42,7 @@ export class ContextBuilder {
     // Add the currently active file to the context
     if (session.activeFile) {
       try {
-        const content = await fileManager.readFile(session.activeFile, options.sessionId);
+        const content = await fileManager.readFile(session.activeFile);
         const truncatedContent = content.substring(0, MAX_FILE_TOKENS);
         contextItems.push({ type: 'active_file', content: `Active File: ${session.activeFile}\n\n${truncatedContent}`, source: session.activeFile });
       } catch (error) {

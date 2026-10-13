@@ -116,7 +116,7 @@ export class PreviewManager {
   private async checkPortActive(port: number): Promise<boolean> {
     const cmd = CommonCommands.checkPort(port);
     const res = await this.shellTools.shellCommand(cmd);
-    return res.exitCode === 0 && (res.stdout.length > 0 || res.stderr.length === 0);
+    return res.exitCode === 0 && ((res.stdout?.length ?? 0) > 0 || (res.stderr?.length ?? 0) === 0);
   }
 
   private async runHealthCheck(url: string): Promise<boolean> {

@@ -2,7 +2,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  reactCompiler: true,
   transpilePackages: [
     "@soryos/core",
     "@soryos/schema",
@@ -32,7 +31,6 @@ const nextConfig: NextConfig = {
     "@soryos/vision",
     "@soryos/images",
   ],
-  turbopack: {},
   async redirects() {
     return [];
   },
