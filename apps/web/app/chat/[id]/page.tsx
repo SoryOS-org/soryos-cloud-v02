@@ -216,6 +216,34 @@ export default function ChatPage({
     }
   };
 
+  // Called when a GitHub Codespace is created/selected: persist repo binding
+  // on the session AND initialize the remote workspace for real.
+  const handleWorkspaceReady = async (info: {
+    repository: string;
+    branch: string;
+    codespaceId?: string;
+  }) => {
+    setCurrentEnvironment("sandbox");
+    setCurrentProvider("github-codespaces");
+    setWorkspaceDetails(info);
+    try {
+      await fetch(`/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          environment: "sandbox",
+          providerId: "github-codespaces",
+          repository: info.repository,
+          branch: info.branch,
+          codespaceId: info.codespaceId,
+        }),
+      });
+    } catch (e) {
+      console.error("Failed to persist codespace binding:", e);
+    }
+    await initWorkspace({ ...info, providerId: "github-codespaces" });
+  };
+
   const runStream = useCallback(
     async (messageContent?: string) => {
       const gen = ++genRef.current;
@@ -482,6 +510,7 @@ export default function ChatPage({
                 onModelChange={setCurrentModel}
                 onAgentChange={setCurrentAgent}
                 onEnvironmentAndProviderChange={handleEnvironmentAndProviderChange}
+                onWorkspaceReady={handleWorkspaceReady}
                 onSendMessage={handleSendMessage}
                 onAbort={handleAbort}
                 onOpenLive={() => setIsLiveOpen(true)}
@@ -521,6 +550,7 @@ export default function ChatPage({
               onModelChange={setCurrentModel}
               onAgentChange={setCurrentAgent}
               onEnvironmentAndProviderChange={handleEnvironmentAndProviderChange}
+              onWorkspaceReady={handleWorkspaceReady}
               onSendMessage={handleSendMessage}
               onAbort={handleAbort}
               onOpenLive={() => setIsLiveOpen(true)}

@@ -8,8 +8,17 @@ import { ActiveWorkspace, ProviderId, WorkspaceStatus } from "@soryos/schema";
 import { ExecutionProvider, executionManager } from "@soryos/execution";
 import { globalEventBus } from "@soryos/bus";
 
+declare global {
+  // Survives Next.js route-bundle module duplication (dev + prod chunks)
+  var __soryos_workspaces_store: Map<string, ActiveWorkspace> | undefined;
+}
+
+const workspacesStore: Map<string, ActiveWorkspace> =
+  globalThis.__soryos_workspaces_store ?? new Map<string, ActiveWorkspace>();
+globalThis.__soryos_workspaces_store = workspacesStore;
+
 export class WorkspaceManager {
-  private workspaces: Map<string, ActiveWorkspace> = new Map();
+  private workspaces: Map<string, ActiveWorkspace> = workspacesStore;
 
   public getOrCreateWorkspace(
     sessionId: string,

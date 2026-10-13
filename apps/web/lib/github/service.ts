@@ -127,7 +127,7 @@ class GitHubService {
       const data = await res.json();
       const items = data.codespaces || data.items || (Array.isArray(data) ? data : []);
       return items.map((cs: any) => ({
-        id: cs.id || cs.name,
+        id: cs.name || String(cs.id),
         name: cs.name,
         displayName: cs.display_name || cs.name,
         state: cs.state || "Running",
@@ -185,20 +185,13 @@ class GitHubService {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      return {
-        id: `cs-${Date.now()}`,
-        name: `codespace-${repo.replace("/", "-")}-${branch}`,
-        state: "Running",
-        repositoryName: repo,
-        branch,
-        webUrl: `https://github.com/${repo}/codespaces`,
-      };
+      throw new Error(err.message || `GitHub API: création du Codespace refusée (HTTP ${res.status})`);
     }
     const cs = await res.json();
     return {
-      id: cs.id || cs.name,
+      id: cs.name || String(cs.id),
       name: cs.name,
-      state: cs.state || "Running",
+      state: cs.state || "Provisioning",
       repositoryName: repo,
       branch,
       webUrl: cs.web_url,

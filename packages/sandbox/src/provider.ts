@@ -21,7 +21,15 @@ export interface SandboxProvider {
   readonly capabilities: ProviderCapabilities;
 
   // Lifecycle
-  create(options?: { sessionId?: string; workspacePath?: string }): Promise<string>;
+  create(options?: {
+    sessionId?: string;
+    workspacePath?: string;
+    token?: string;
+    owner?: string;
+    repo?: string;
+    branch?: string;
+    codespaceName?: string;
+  }): Promise<string>;
   connect(sandboxId: string): Promise<boolean>;
   disconnect(): Promise<void>;
   start(): Promise<void>;

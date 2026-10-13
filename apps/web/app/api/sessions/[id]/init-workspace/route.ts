@@ -3,6 +3,7 @@ import { sessionStore } from "@soryos/session";
 import { workspaceManager } from "@soryos/workspace";
 import { sandboxManager } from "@soryos/sandbox";
 import { GitHubRemoteFilesystem } from "@soryos/filesystem";
+import { credentialManager } from "@/lib/credentials/manager";
 import type { SessionData, ProviderId } from "@soryos/schema";
 
 /**
@@ -47,7 +48,41 @@ export async function POST(
     ws.providerId = targetProviderId;
 
     // Initialize sandbox for target provider (NEVER call E2B when targetProviderId is github-codespaces or local!)
-    const { sandboxId } = await sandboxManager.getOrCreateSandbox(id, targetProviderId);
+    let providerOptions:
+      | { token?: string; owner?: string; repo?: string; branch?: string; codespaceName?: string }
+      | undefined;
+    const targetRepo = overrides.repository || session.repository;
+    if (targetProviderId === "github-codespaces") {
+      const ghCreds = credentialManager.getCredentials("github-codespaces");
+      const ghToken = ghCreds?.apiKey || process.env.GITHUB_TOKEN;
+      if (ghToken) {
+        // Make the token + gh CLI available to the codespaces provider / exec layer
+        process.env.GITHUB_TOKEN = ghToken;
+        process.env.GH_TOKEN = ghToken;
+        if (!process.env.GH_CLI_PATH) {
+          process.env.GH_CLI_PATH = "/tmp/opencode/gh";
+        }
+        // Bundled ssh/ssh-keygen live next to the gh binary (see /tmp/opencode/bin)
+        if (!process.env.PATH?.includes("/tmp/opencode/bin")) {
+          process.env.PATH = `/tmp/opencode/bin:${process.env.PATH ?? ""}`;
+        }
+      }
+      if (targetRepo) {
+        const [owner, repoName] = targetRepo.split("/");
+        providerOptions = {
+          token: ghToken,
+          owner,
+          repo: repoName,
+          branch: overrides.branch || session.branch || "main",
+          codespaceName: overrides.codespaceId || session.codespaceId,
+        };
+      }
+    }
+    const { sandboxId } = await sandboxManager.getOrCreateSandbox(
+      id,
+      targetProviderId,
+      providerOptions
+    );
     session.sandbox_id = sandboxId;
 
     // If GitHub repository, sync the file tree (contents are loaded lazily on open)

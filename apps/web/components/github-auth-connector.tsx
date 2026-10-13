@@ -18,7 +18,7 @@ import { useState } from "react";
 
 interface GitHubAuthConnectorProps {
   sessionId?: string;
-  onCodespaceSelected?: (repo: string, branch: string) => void;
+  onCodespaceSelected?: (repo: string, branch: string, codespaceId?: string) => void;
 }
 
 export function GitHubAuthConnector({
@@ -89,10 +89,15 @@ export function GitHubAuthConnector({
     if (!selectedRepo) return;
     setActionLoading(true);
     try {
-      const cs = await createCodespace(selectedRepo, selectedBranch);
+      // Reuse an already-running/existing codespace instead of creating a new one
+      const cs = codespaces.length
+        ? codespaces[0]
+        : await createCodespace(selectedRepo, selectedBranch);
       if (cs) {
-        onCodespaceSelected?.(selectedRepo, selectedBranch);
+        onCodespaceSelected?.(selectedRepo, selectedBranch || "main", cs.id);
       }
+    } catch {
+      // Error already surfaced via the hook's `error` state
     } finally {
       setActionLoading(false);
     }

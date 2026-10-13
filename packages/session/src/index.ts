@@ -1,7 +1,14 @@
 
 import { SessionData, ProviderId } from "@soryos/schema";
 
-let sessions: Map<string, SessionData> = new Map();
+declare global {
+  // Survives Next.js route-bundle module duplication (dev + prod chunks)
+  var __soryos_sessions_store: Map<string, SessionData> | undefined;
+}
+
+let sessions: Map<string, SessionData> =
+  globalThis.__soryos_sessions_store ?? new Map<string, SessionData>();
+globalThis.__soryos_sessions_store = sessions;
 
 export class SessionStore {
   create(sessionData: Partial<SessionData>): SessionData {

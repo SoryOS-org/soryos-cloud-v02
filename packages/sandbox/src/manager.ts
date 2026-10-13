@@ -17,11 +17,23 @@ import {
 
 type EventListener = (event: SandboxEvent) => void;
 
+declare global {
+  // Survives Next.js route-bundle module duplication (dev + prod chunks)
+  var __soryos_active_sandboxes:
+    | Map<string, { providerId: ProviderId; provider: SandboxProvider; sandboxId: string }>
+    | undefined;
+}
+
+const activeSandboxesStore: Map<
+  string,
+  { providerId: ProviderId; provider: SandboxProvider; sandboxId: string }
+> =
+  globalThis.__soryos_active_sandboxes ??
+  new Map<string, { providerId: ProviderId; provider: SandboxProvider; sandboxId: string }>();
+globalThis.__soryos_active_sandboxes = activeSandboxesStore;
+
 class SandboxManager {
-  private activeSandboxes = new Map<
-    string,
-    { providerId: ProviderId; provider: SandboxProvider; sandboxId: string }
-  >();
+  private activeSandboxes = activeSandboxesStore;
   private listeners: EventListener[] = [];
 
   // Event Subscription
@@ -59,7 +71,14 @@ class SandboxManager {
   // Get or Create Sandbox for Session
   async getOrCreateSandbox(
     sessionId: string,
-    requestedProviderId: ProviderId = "local"
+    requestedProviderId: ProviderId = "local",
+    providerOptions?: {
+      token?: string;
+      owner?: string;
+      repo?: string;
+      branch?: string;
+      codespaceName?: string;
+    }
   ): Promise<{ provider: SandboxProvider; sandboxId: string; providerId: ProviderId }> {
     const existing = this.activeSandboxes.get(sessionId);
 
@@ -80,7 +99,7 @@ class SandboxManager {
     }
 
     this.emitEvent("sandbox.starting", sessionId, requestedProviderId, "");
-    const sandboxId = await provider.create({ sessionId });
+    const sandboxId = await provider.create({ sessionId, ...providerOptions });
     await provider.start();
 
     const entry = { providerId: requestedProviderId, provider, sandboxId };

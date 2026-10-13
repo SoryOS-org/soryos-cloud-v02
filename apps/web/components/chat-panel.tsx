@@ -55,6 +55,7 @@ interface ChatPanelProps {
   onAgentChange?: (agentId: string) => void;
   onProviderChange?: (providerId: ProviderId) => void;
   onEnvironmentAndProviderChange?: (env: EnvironmentType, providerId: ProviderId) => void;
+  onWorkspaceReady?: (info: { repository: string; branch: string; codespaceId?: string }) => void;
   onSendMessage: (content: string) => void;
   onAbort?: () => void;
   onOpenLive?: () => void;
@@ -105,6 +106,7 @@ export function ChatPanel({
   onAgentChange,
   onProviderChange,
   onEnvironmentAndProviderChange,
+  onWorkspaceReady,
   onSendMessage,
   onAbort,
   onOpenLive,
@@ -197,6 +199,7 @@ export function ChatPanel({
               onEnvironmentAndProviderChange ??
               ((env, prov) => onProviderChange?.(prov))
             }
+            onWorkspaceReady={onWorkspaceReady}
           />
           {loading && onAbort && (
             <Button

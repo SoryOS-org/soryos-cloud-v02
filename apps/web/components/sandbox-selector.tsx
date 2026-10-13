@@ -1,13 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { GitHubAuthConnector } from "./github-auth-connector";
 import {
-  Cloud,
-  Laptop,
-  Terminal,
-  Cpu,
-  Boxes,
   CheckCircle2,
   AlertTriangle,
   ChevronDown,
@@ -17,12 +12,6 @@ import {
   GitPullRequest,
   Loader2,
   Check,
-  Github,
-  Plus,
-  Search,
-  ExternalLink,
-  LogOut,
-  FolderGit2,
 } from "lucide-react";
 
 export type EnvironmentType = "sandbox" | "local";
@@ -145,6 +134,11 @@ interface SandboxSelectorProps {
     environment: EnvironmentType,
     providerId: ProviderId
   ) => void;
+  onWorkspaceReady?: (info: {
+    repository: string;
+    branch: string;
+    codespaceId?: string;
+  }) => void;
   disabled?: boolean;
 }
 
@@ -153,33 +147,14 @@ export function SandboxSelector({
   currentEnvironment = "local",
   currentProviderId = "local",
   onSelectEnvironmentAndProvider,
+  onWorkspaceReady,
   disabled = false,
 }: SandboxSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncDone, setSyncDone] = useState(false);
-
-  // GitHub Account & Codespaces State
-  const [githubAccount, setGithubAccount] = useState<{
-    connected: boolean;
-    username?: string;
-    avatarUrl?: string;
-  }>({ connected: false });
-  const [githubLoading, setGithubLoading] = useState(false);
-  const [repos, setRepos] = useState<Array<{ fullName: string; name: string }>>([]);
-  const [selectedRepo, setSelectedRepo] = useState<string>("");
-  const [branches, setBranches] = useState<Array<{ name: string }>>([]);
-  const [selectedBranch, setSelectedBranch] = useState<string>("main");
-  const [codespaces, setCodespaces] = useState<Array<{ id: string; name: string; state: string }>>([]);
-  const [selectedCodespace, setSelectedCodespace] = useState<string>("");
-
-  // New Repo Form Modal
-  const [showNewRepoForm, setShowNewRepoForm] = useState(false);
-  const [newRepoName, setNewRepoName] = useState("");
-  const [newRepoDesc, setNewRepoDesc] = useState("");
-  const [newRepoPrivate, setNewRepoPrivate] = useState(true);
-  const [repoCreating, setRepoCreating] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const [gitStatus, setGitStatus] = useState<{
     isClean: boolean;
@@ -197,153 +172,6 @@ export function SandboxSelector({
   const activeProvId = currentEnvironment === "local" ? "local" : currentProviderId;
   const activeProvMeta = PROVIDER_METADATA[activeProvId] || PROVIDER_METADATA.e2b;
 
-  // Load GitHub Account State on Mount or when opening selector
-  useEffect(() => {
-    async function loadGitHubState() {
-      try {
-        const res = await fetch(`/api/github?action=account&sessionId=${sessionId}`);
-        const data = await res.json();
-        setGithubAccount(data);
-
-        if (data.connected) {
-          // Fetch repos
-          const reposRes = await fetch(`/api/github?action=repos&sessionId=${sessionId}`);
-          const reposData = await reposRes.json();
-          if (reposData.repos?.length) {
-            setRepos(reposData.repos);
-            const firstRepo = reposData.repos[0].fullName;
-            setSelectedRepo(firstRepo);
-
-            // Fetch branches for first repo
-            const branchRes = await fetch(`/api/github?action=branches&sessionId=${sessionId}&repo=${firstRepo}`);
-            const branchData = await branchRes.json();
-            if (branchData.branches?.length) {
-              setBranches(branchData.branches);
-              setSelectedBranch(branchData.branches[0].name);
-            }
-
-            // Fetch codespaces
-            const csRes = await fetch(`/api/github?action=codespaces&sessionId=${sessionId}&repo=${firstRepo}`);
-            const csData = await csRes.json();
-            if (csData.codespaces?.length) {
-              setCodespaces(csData.codespaces);
-              setSelectedCodespace(csData.codespaces[0].id);
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Failed to load GitHub state:", e);
-      }
-    }
-    if (isOpen) void loadGitHubState();
-  }, [isOpen, sessionId]);
-
-  const handleConnectGitHub = async () => {
-    setGithubLoading(true);
-    try {
-      const res = await fetch(`/api/github?action=connect`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, username: "soryos-dev" }),
-      });
-      const data = await res.json();
-      if (data.account) {
-        setGithubAccount(data.account);
-        // Refresh repos
-        const reposRes = await fetch(`/api/github?action=repos&sessionId=${sessionId}`);
-        const reposData = await reposRes.json();
-        if (reposData.repos?.length) {
-          setRepos(reposData.repos);
-          setSelectedRepo(reposData.repos[0].fullName);
-        }
-      }
-    } finally {
-      setGithubLoading(false);
-    }
-  };
-
-  const handleDisconnectGitHub = async () => {
-    await fetch(`/api/github?action=disconnect`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
-    });
-    setGithubAccount({ connected: false });
-    setRepos([]);
-    setBranches([]);
-    setCodespaces([]);
-  };
-
-  const handleSelectRepo = async (repoFullName: string) => {
-    setSelectedRepo(repoFullName);
-    try {
-      const branchRes = await fetch(`/api/github?action=branches&sessionId=${sessionId}&repo=${repoFullName}`);
-      const branchData = await branchRes.json();
-      if (branchData.branches?.length) {
-        setBranches(branchData.branches);
-        setSelectedBranch(branchData.branches[0].name);
-      }
-
-      const csRes = await fetch(`/api/github?action=codespaces&sessionId=${sessionId}&repo=${repoFullName}`);
-      const csData = await csRes.json();
-      if (csData.codespaces?.length) {
-        setCodespaces(csData.codespaces);
-        setSelectedCodespace(csData.codespaces[0].id);
-      } else {
-        setCodespaces([]);
-      }
-    } catch (e) {
-      console.error("Failed to update branches for repo:", e);
-    }
-  };
-
-  const handleCreateNewRepo = async () => {
-    if (!newRepoName.trim()) return;
-    setRepoCreating(true);
-    try {
-      const res = await fetch(`/api/github?action=create_repo`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          name: newRepoName.trim(),
-          description: newRepoDesc.trim(),
-          private: newRepoPrivate,
-        }),
-      });
-      const data = await res.json();
-      if (data.repo) {
-        setRepos((prev) => [data.repo, ...prev]);
-        setSelectedRepo(data.repo.fullName);
-        setShowNewRepoForm(false);
-        setNewRepoName("");
-        setNewRepoDesc("");
-      }
-    } finally {
-      setRepoCreating(false);
-    }
-  };
-
-  const handleCreateOrConnectCodespace = async () => {
-    if (!selectedRepo) return;
-    setGithubLoading(true);
-    try {
-      await fetch(`/api/github?action=create_codespace`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId,
-          repo: selectedRepo,
-          branch: selectedBranch,
-        }),
-      });
-      onSelectEnvironmentAndProvider("sandbox", "github-codespaces");
-      setIsOpen(false);
-    } finally {
-      setGithubLoading(false);
-    }
-  };
-
   const getDiscreetBadgeLabel = () => {
     if (activeEnv === "local") {
       return "💻 Local";
@@ -353,21 +181,21 @@ export function SandboxSelector({
 
   const checkGitAndInitiateTransition = async (env: EnvironmentType, prov: ProviderId) => {
     setPendingChange({ env, prov });
+    setSyncError(null);
     setIsOpen(false);
 
     try {
       const res = await fetch(`/api/sessions/${sessionId}/git-sync`);
-      const data = await res.json();
-      if (data.gitStatus) {
-        setGitStatus(data.gitStatus);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.gitStatus) {
+          setGitStatus(data.gitStatus);
+        }
+      } else {
+        setGitStatus(null);
       }
     } catch {
-      setGitStatus({
-        isClean: true,
-        currentBranch: `soryos-code/${sessionId.slice(0, 8)}`,
-        currentCommit: "latest",
-        uncommittedFilesCount: 0,
-      });
+      setGitStatus(null);
     }
 
     setSyncModalOpen(true);
@@ -376,9 +204,10 @@ export function SandboxSelector({
   const handleCommitAndPushThenSwitch = async () => {
     if (!pendingChange) return;
     setSyncing(true);
+    setSyncError(null);
 
     try {
-      await fetch(`/api/sessions/${sessionId}/git-sync`, {
+      const syncRes = await fetch(`/api/sessions/${sessionId}/git-sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -387,9 +216,13 @@ export function SandboxSelector({
           commitMessage: `soryos-code: checkpoint before switching to ${pendingChange.prov}`,
         }),
       });
+      if (!syncRes.ok) {
+        const errData = await syncRes.json().catch(() => ({}));
+        throw new Error(errData.error || "Le commit & push a échoué");
+      }
 
       if (pendingChange.env === "sandbox") {
-        await fetch(`/api/sessions/${sessionId}/git-sync`, {
+        const cloudRes = await fetch(`/api/sessions/${sessionId}/git-sync`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -397,6 +230,10 @@ export function SandboxSelector({
             providerId: pendingChange.prov,
           }),
         });
+        if (!cloudRes.ok) {
+          const errData = await cloudRes.json().catch(() => ({}));
+          throw new Error(errData.error || "La synchronisation cloud a échoué");
+        }
       }
 
       setSyncDone(true);
@@ -407,9 +244,8 @@ export function SandboxSelector({
         setSyncDone(false);
         setPendingChange(null);
       }, 800);
-    } catch {
-      onSelectEnvironmentAndProvider(pendingChange.env, pendingChange.prov);
-      setSyncModalOpen(false);
+    } catch (e) {
+      setSyncError((e as Error)?.message || "Synchronisation impossible");
       setSyncing(false);
     }
   };
@@ -547,7 +383,8 @@ export function SandboxSelector({
                     <div className="mt-3">
                       <GitHubAuthConnector
                         sessionId={sessionId}
-                        onCodespaceSelected={() => {
+                        onCodespaceSelected={(repo, branch, codespaceId) => {
+                          onWorkspaceReady?.({ repository: repo, branch, codespaceId });
                           onSelectEnvironmentAndProvider("sandbox", "github-codespaces");
                           setIsOpen(false);
                         }}
@@ -598,15 +435,35 @@ export function SandboxSelector({
                   Votre espace de travail contient des fichiers non commités. Pour retrouver exactement le même état dans <strong>{pendingChange.prov}</strong>, nous recommandons de commiter et pusher vers la branche de session GitHub.
                 </p>
               </div>
-            ) : (
+            ) : gitStatus ? (
               <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-600 dark:text-emerald-400 space-y-1">
                 <div className="flex items-center gap-1 font-bold">
                   <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                   Espace de travail propre (Clean Git Status)
                 </div>
                 <p className="text-[11px]">
-                  Branche : <code className="font-mono">{gitStatus?.currentBranch || `soryos-code/${sessionId.slice(0, 8)}`}</code>
+                  Branche : <code className="font-mono">{gitStatus.currentBranch || `soryos-code/${sessionId.slice(0, 8)}`}</code>
                 </p>
+              </div>
+            ) : (
+              <div className="p-3 bg-[var(--surface)] border border-[var(--border)] rounded-xl text-xs text-[var(--muted-foreground)] space-y-1">
+                <div className="flex items-center gap-1 font-bold text-[var(--foreground)]">
+                  <GitBranch className="h-4 w-4 text-[var(--muted-foreground)]" />
+                  Statut Git indisponible
+                </div>
+                <p className="text-[11px]">
+                  Branche cible : <code className="font-mono">{`soryos-code/${sessionId.slice(0, 8)}`}</code> — vous pouvez commiter & pusher ou changer directement.
+                </p>
+              </div>
+            )}
+
+            {syncError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-600 dark:text-red-400 space-y-1">
+                <div className="flex items-center gap-1 font-bold">
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
+                  <span>Échec de la synchronisation</span>
+                </div>
+                <p className="text-[11px] leading-snug">{syncError}</p>
               </div>
             )}
 

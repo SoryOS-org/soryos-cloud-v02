@@ -10,7 +10,7 @@ import {
   ProcessHandle,
   FileEntry,
 } from "../types";
-import { getGitHubClient } from "@soryos/github";
+import { createGitHubClient } from "@soryos/github";
 import { execInCodespace } from "../codespace-exec";
 
 export class GitHubCodespacesProvider implements SandboxProvider {
@@ -37,28 +37,67 @@ export class GitHubCodespacesProvider implements SandboxProvider {
   private codespaceName: string | null = null;
   private owner: string | null = null;
   private repo: string | null = null;
+  private token: string | null = null;
   private status: "ready" | "busy" | "paused" | "disconnected" | "error" | "not_configured" = "not_configured";
   private cwd: string = "/workspace";
 
   private getToken(): string {
-    const token = process.env.GITHUB_TOKEN;
+    const token = this.token || process.env.GITHUB_TOKEN;
     if (!token) {
-      throw new Error("GitHub token not found in environment variables (GITHUB_TOKEN)");
+      throw new Error(
+        "GitHub token introuvable pour Codespaces (options.token ou variable d'environnement GITHUB_TOKEN)"
+      );
     }
     return token;
   }
 
   private getGitHubClient() {
-    return getGitHubClient({ token: this.getToken(), owner: this.owner || '' });
+    return createGitHubClient(this.getToken(), this.owner || "");
   }
 
-  async create(options: { sessionId: string, owner: string, repo: string, branch: string }): Promise<string> {
-    this.sessionId = options.sessionId;
-    this.owner = options.owner;
-    this.repo = options.repo;
-    
+  async create(options?: {
+    sessionId?: string;
+    workspacePath?: string;
+    token?: string;
+    owner?: string;
+    repo?: string;
+    branch?: string;
+    codespaceName?: string;
+  }): Promise<string> {
+    this.sessionId = options?.sessionId ?? this.sessionId;
+    if (options?.token) this.token = options.token;
+    if (options?.owner) this.owner = options.owner;
+    if (options?.repo) this.repo = options.repo;
+
+    // Preferred path: connect to an already-created Codespace (created by the
+    // web layer via /api/github?action=create_codespace).
+    if (options?.codespaceName) {
+      this.codespaceName = options.codespaceName;
+      if (this.repo) this.cwd = `/workspaces/${this.repo}`;
+      const state = await this.getStatus();
+      if (state === "error") {
+        this.status = "error";
+        throw new Error(`Codespace « ${options.codespaceName} » inaccessible via l'API GitHub`);
+      }
+      if (state === "paused") {
+        const client = this.getGitHubClient();
+        const started = await client.startCodespace(options.codespaceName);
+        if (!started.success) {
+          throw new Error(`Impossible de démarrer le Codespace : ${started.error}`);
+        }
+        this.status = "busy";
+      }
+      return this.codespaceName;
+    }
+
+    // Fallback: create a brand-new Codespace (needs owner/repo/token).
+    if (!this.owner || !this.repo) {
+      throw new Error("owner et repo requis pour créer un nouveau Codespace");
+    }
     const client = this.getGitHubClient();
-    const result = await client.createCodespace(this.owner, this.repo, { branch: options.branch });
+    const result = await client.createCodespace(this.owner, this.repo, {
+      branch: options?.branch || "main",
+    });
 
     if (!result.success || !result.data) {
       this.status = "error";
@@ -72,11 +111,15 @@ export class GitHubCodespacesProvider implements SandboxProvider {
     return this.codespaceName;
   }
 
-  async connect(sandboxId: string, options?: { sessionId?: string, owner?: string, repo?: string }): Promise<boolean> {
+  async connect(
+    sandboxId: string,
+    options?: { sessionId?: string; owner?: string; repo?: string; token?: string }
+  ): Promise<boolean> {
     this.sessionId = options?.sessionId ?? this.sessionId;
     this.codespaceName = sandboxId;
     this.owner = options?.owner ?? this.owner;
     this.repo = options?.repo ?? this.repo;
+    if (options?.token) this.token = options.token;
     this.cwd = `/workspaces/${this.repo}`;
 
     await this.getStatus();
@@ -195,14 +238,15 @@ export class GitHubCodespacesProvider implements SandboxProvider {
     const res = await execInCodespace({
       codespaceName: this.codespaceName,
       command,
+      cwd: this.repo ? `/workspaces/${this.repo}` : undefined,
     });
     
     return {
-      exitCode: res.stderr ? 1 : 0,
+      exitCode: res.exitCode,
       stdout: res.stdout,
       stderr: res.stderr,
       output: res.stdout || res.stderr,
-      isError: !!res.stderr,
+      isError: res.exitCode !== 0,
       durationMs: 0, // Not provided by this implementation
     };
   }
