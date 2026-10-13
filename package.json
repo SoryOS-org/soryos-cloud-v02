@@ -2,20 +2,22 @@
   "name": "soryos-code",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "dev": "npx turbo dev",
+    "build": "npx turbo build",
+    "lint": "npx turbo lint",
+    "typecheck": "npx turbo typecheck",
+    "test:engine": "npx turbo test:engine",
+    "doctor": "npx ts-node scripts/doctor.ts"
+  },
+  "devDependencies": {
+    "turbo": "^2.2.3",
+    "typescript": "^5.6.3",
+    "ts-node": "^10.9.2"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
-  "scripts": {
-    "dev": "cd apps/web && ./node_modules/.bin/next dev -H 0.0.0.0",
-    "start": "npm --prefix apps/web run start",
-    "build": "npm --prefix apps/web run build && rm -rf dist && mkdir -p dist && cp -r apps/web/.next dist/.next && cp -r apps/web/public dist/public 2>/dev/null; test -d dist/.next",
-    "build:dev": "npm run build",
-    "lint": "npm --prefix apps/web run lint",
-    "typecheck": "npm --prefix apps/web run typecheck",
-    "test:engine": "bun run --cwd apps/web test:engine"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.133.0"
-  }
+  "packageManager": "npm@10.8.2"
 }

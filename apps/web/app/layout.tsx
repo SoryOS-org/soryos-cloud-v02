@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/theme/theme-context";
+import { FirebaseClientProvider } from "@/firebase";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,23 +25,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: "SoryOS-Code",
-  description:
-    "AI agent workbench for code generation and execution with multi-provider sandbox architecture.",
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "SoryOS-Code",
-  },
-  icons: {
-    icon: "/logo1.png",
-    apple: "/apple-touch-icon.png",
-  },
-  openGraph: {
-    title: "SoryOS-Code",
-    description:
-      "AI agent workbench for code generation and execution with multi-provider sandbox architecture.",
-  },
+  description: "AI agent workbench with Firebase real-time sync.",
 };
 
 export default function RootLayout({
@@ -54,7 +39,9 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} antialiased h-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]`}
       >
-        <ThemeProvider>{children}</ThemeProvider>
+        <FirebaseClientProvider>
+          <ThemeProvider>{children}</ThemeProvider>
+        </FirebaseClientProvider>
       </body>
     </html>
   );

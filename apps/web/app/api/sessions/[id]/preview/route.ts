@@ -1,64 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sessionStore } from "@soryos/session";
-import { sandboxManager } from "@soryos/sandbox";
-import type { SessionData } from "@soryos/schema";
+import { devRunner } from "@soryos/dev-runner";
 
 /**
- * Récupère l'URL de prévisualisation pour une session.
- * Utilise UNIQUEMENT @soryos/* - Aucune logique métier ici.
+ * API Route pour récupérer ou initialiser la preview d'une session.
+ * Utilise désormais le PreviewManager pour une détection réelle du serveur dev.
  */
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const session: SessionData | undefined = sessionStore.get(id);
+  const session = sessionStore.get(id);
 
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
   try {
-    // Get sandbox and check if dev server is running
-    const { provider } = await sandboxManager.getOrCreateSandbox(id, session.providerId || "local");
-    const envInfo = await provider.getEnvironmentInfo();
-
-    // Check for common dev server ports
-    const devPorts = [3000, 3001, 4000, 5173, 8080];
-    let previewUrl: string | null = null;
-
-    for (const port of devPorts) {
-      try {
-        // Try to fetch from the port
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1000);
-        const response = await fetch(`http://localhost:${port}`, {
-          method: "HEAD",
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        if (response.ok) {
-          previewUrl = `http://localhost:${port}`;
-          break;
-        }
-      } catch {
-        // Port not available
-      }
-    }
-
-    if (!previewUrl) {
-      previewUrl = `/api/preview/${id}`;
-    }
+    // On demande au devRunner d'assurer que la preview est prête sur le port 3000 (standard Next/Vite)
+    const preview = await devRunner.previewManager.ensurePreview({
+      sessionId: id,
+      port: 3000,
+      path: '/'
+    });
 
     return NextResponse.json({
-      preview_url: previewUrl,
+      preview_url: preview.url,
       status: "ready",
-      cwd: envInfo.cwd,
+      port: preview.port,
+      tunnelType: preview.tunnelType
     });
-  } catch {
+  } catch (error) {
+    console.error("[Preview API] Erreur lors de la détection du serveur:", error);
+    
+    // Fallback sur la page de preview statique générée si le serveur réel n'est pas encore là
     return NextResponse.json({
       preview_url: `/api/preview/${id}`,
-      status: "ready",
+      status: "fallback",
+      message: error instanceof Error ? error.message : "Serveur dev non détecté"
     });
   }
 }
