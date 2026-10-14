@@ -29,7 +29,8 @@ This package houses the core autonomous **`AgentRuntime`** and agent matrix (`bu
 ## Subagent System (`src/subagents.ts`)
 - `explore` (mode `explore`, read-only, 12 tool calls), `plan` (mode `plan`, read-only + webfetch, 10), `coder` (mode `build`, full, 15).
 - `SubagentManager.run()` = REAL loop: LLM replies with `{"toolCalls":[...],"final":null}` → tools executed through the real `ToolExecutor` (permissions enforced per subagent mode) → until final answer, tool-call limit (honest PARTIAL result), pause, or LLM error.
-- The `task` tool (`{subagent, prompt}`) is INJECTED from this package into `@soryos/tool` (registry + static override map) — `@soryos/tool` never imports `@soryos/agent` (no cycle). Denied in plan/explore/code-reviewer modes by default permissions.
+- **Worktree isolation** (`run({ isolate: true })` / `task {isolate:true}`): on local providers, a real git worktree is created via `WorktreeTools` (`@soryos/tool`), all tool calls run through a `LocalExecutionProvider` rooted at the worktree, and the worktree is KEPT + reported in `SubagentRunResult.worktreePath/worktreeBranch` (never silently discarded; main checkout untouched). Non-local providers or git failures → honest isolation note, run continues in the main workspace.
+- The `task` tool (`{subagent, prompt, isolate?}`) is INJECTED from this package into `@soryos/tool` (registry + static override map) — `@soryos/tool` never imports `@soryos/agent` (no cycle). Denied in plan/explore/code-reviewer modes by default permissions.
 - Bus events: `subagent.started`, `subagent.completed`, `subagent.failed`.
 
 ## Agent Guidelines

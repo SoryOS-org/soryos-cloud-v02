@@ -14,6 +14,7 @@ import { GitTools } from "./git-tools";
 import { CodebaseTools } from "./codebase-tools";
 import { WebFetchTool } from "./web-tools";
 import { PatchTools } from "./patch-tools";
+import { WorktreeTools } from "./worktree-tools";
 import {
   createQuestionRequest,
   resolveQuestionRequest,
@@ -32,6 +33,8 @@ export type { RipgrepResult } from "./ripgrep";
 export { McpConnection, McpConnectError, DEFAULT_MCP_STARTUP_TIMEOUT_MS, DEFAULT_MCP_EXECUTION_TIMEOUT_MS } from "./mcp-client";
 export type { McpToolInfo, McpCallToolResult } from "./mcp-client";
 export { mcpManager, mcpToolName } from "./mcp-manager";
+export { WorktreeTools } from "./worktree-tools";
+export type { WorktreeResult, WorktreeInfo } from "./worktree-tools";
 
 export type ToolArgs = Record<string, any>;
 
@@ -251,6 +254,46 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    id: "git_worktree_create",
+    name: "git_worktree_create",
+    description:
+      "Creates an isolated git worktree (own directory + branch) under .soryos-worktrees/ so parallel work never conflicts with the main checkout.",
+    category: "git",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Worktree name (sanitized; defaults to worktree-<timestamp>)" },
+        branch: { type: "string", description: "Branch name to create (defaults to soryos/<name>)" },
+      },
+      required: [],
+    },
+  },
+  {
+    id: "git_worktree_list",
+    name: "git_worktree_list",
+    description: "Lists all git worktrees of the current repository (path + branch).",
+    category: "git",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    id: "git_worktree_remove",
+    name: "git_worktree_remove",
+    description: "Removes a git worktree by path. Uncommitted changes require force=true.",
+    category: "git",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Absolute path of the worktree to remove" },
+        force: { type: "boolean", description: "Discard uncommitted changes (git worktree remove --force)" },
+      },
+      required: ["path"],
+    },
+  },
+  {
     id: "codebase_search",
     name: "codebase_search",
     description: "Searches the codebase for code related to a natural-language query and returns matching files.",
@@ -382,6 +425,7 @@ export interface ToolBundle {
   codebase: CodebaseTools;
   web: WebFetchTool;
   patch: PatchTools;
+  worktree: WorktreeTools;
 }
 
 export interface HandlerContext {
@@ -393,6 +437,7 @@ export interface HandlerContext {
   codebase: CodebaseTools;
   web: WebFetchTool;
   patch: PatchTools;
+  worktree: WorktreeTools;
 }
 
 export type ToolHandler = (args: ToolArgs, ctx: HandlerContext) => Promise<ToolExecutionResult>;
@@ -630,6 +675,25 @@ const HANDLERS: Record<string, ToolHandler> = {
     const path = asString(pick(args, "git_commit", "path") ?? "", "path");
     return fromGit("git_commit", await ctx.git.gitCommit({ message }, path));
   },
+  git_worktree_create: async (args, ctx) => {
+    const name = asString(pick(args, "git_worktree_create", "name") ?? "", "name");
+    const branch = asString(pick(args, "git_worktree_create", "branch") ?? "", "branch");
+    const r = await ctx.worktree.createWorktree({
+      ...(name ? { name } : {}),
+      ...(branch ? { branch } : {}),
+    });
+    return fromGit("git_worktree_create", r);
+  },
+  git_worktree_list: async (_args, ctx) => {
+    const r = await ctx.worktree.listWorktrees();
+    return fromGit("git_worktree_list", r);
+  },
+  git_worktree_remove: async (args, ctx) => {
+    const path = asString(requireValue(args, "git_worktree_remove", "path"), "path");
+    const force = asOptionalBoolean(pick(args, "git_worktree_remove", "force"), "force") ?? false;
+    const r = await ctx.worktree.removeWorktree(path, force);
+    return fromGit("git_worktree_remove", r);
+  },
   codebase_search: async (args, ctx) => {
     const query = asString(requireValue(args, "codebase_search", "query"), "query");
     const path = asString(pick(args, "codebase_search", "path") ?? "", "path");
@@ -744,6 +808,7 @@ export class ToolExecutor {
         codebase: new CodebaseTools(provider),
         web: new WebFetchTool(),
         patch: new PatchTools(provider),
+        worktree: new WorktreeTools(provider),
       };
       this.bundles.set(provider, bundle);
     }

@@ -33,3 +33,4 @@ dist
 # Reference material (external repos, ~2Go) — jamais committé
 reference-pour-ameliorer-notre-projet/
 
+.soryos-worktrees/

@@ -1,5 +1,5 @@
-import { toolRegistry, ToolExecutor } from '@soryos/tool';
-import { executionManager } from '@soryos/execution';
+import { toolRegistry, ToolExecutor, WorktreeTools } from '@soryos/tool';
+import { executionManager, LocalExecutionProvider, ExecutionProvider } from '@soryos/execution';
 import { globalEventBus } from '@soryos/bus';
 import { sessionStore } from '@soryos/session';
 import { SessionData, ToolDefinition, ToolExecutionResult } from '@soryos/schema';
@@ -104,6 +104,8 @@ export class SubagentManager {
     prompt: string;
     session: SessionData;
     model?: string;
+    /** Run all tool calls inside an isolated git worktree (local providers only; kept + reported). */
+    isolate?: boolean;
   }): Promise<SubagentRunResult> {
     const { prompt, session } = input;
     const definition = getSubagentDefinition(input.definitionId);
@@ -132,6 +134,45 @@ export class SubagentManager {
     const maxCalls = definition.maxToolCalls ?? 10;
     const mode = definition.mode || 'build';
 
+    // Optional worktree isolation: all tool calls run inside a fresh git
+    // worktree so parallel subagents never fight over the same files.
+    // The worktree is KEPT and reported (never silently discarded).
+    let provider: ExecutionProvider = await executionManager.getProvider(
+      session.id,
+      session.providerId || 'local'
+    );
+    let worktreeInfo: { path: string; branch: string } | undefined;
+    const isolationNotes: string[] = [];
+    if (input.isolate) {
+      if (provider.type !== 'local') {
+        isolationNotes.push(
+          `[isolation] Worktree isolation requires a local provider (got "${provider.type}"); running in the main workspace.`
+        );
+      } else {
+        const created = await new WorktreeTools(provider).createWorktree({
+          name: `${definition.id}-${Date.now()}`,
+        });
+        const wtPath = created.metadata?.path;
+        const wtBranch = created.metadata?.branch;
+        if (created.success && typeof wtPath === 'string' && typeof wtBranch === 'string') {
+          worktreeInfo = { path: wtPath, branch: wtBranch };
+          // No init(): the worktree already contains the checked-out files.
+          provider = new LocalExecutionProvider(wtPath);
+          isolationNotes.push(`[isolation] Running inside worktree ${wtPath} (branch ${wtBranch}).`);
+        } else {
+          isolationNotes.push(
+            `[isolation] Worktree creation failed: ${created.error ?? 'unknown error'}; running in the main workspace.`
+          );
+        }
+      }
+    }
+    const withWorktree = (result: SubagentRunResult): SubagentRunResult => ({
+      ...result,
+      ...(worktreeInfo
+        ? { worktreePath: worktreeInfo.path, worktreeBranch: worktreeInfo.branch }
+        : {}),
+    });
+
     const systemPrompt = [
       definition.defaultPrompt,
       '',
@@ -144,7 +185,7 @@ export class SubagentManager {
       `Tools you may use (enforced): ${definition.requiredTools.join(', ')}.`,
     ].join('\n');
 
-    const transcript: string[] = [`Task: ${prompt}`];
+    const transcript: string[] = [`Task: ${prompt}`, ...isolationNotes];
     let toolCalls = 0;
     let iterations = 0;
 
@@ -158,13 +199,13 @@ export class SubagentManager {
             callId,
             error: 'Paused by user.',
           });
-          return {
+          return withWorktree({
             success: false,
             output: '',
             error: 'Subagent paused: the session was stopped by the user.',
             iterations,
             toolCalls,
-          };
+          });
         }
 
         iterations++;
@@ -182,7 +223,7 @@ export class SubagentManager {
             callId,
             error: res.error,
           });
-          return { success: false, output: '', error: `Subagent LLM error: ${res.error}`, iterations, toolCalls };
+          return withWorktree({ success: false, output: '', error: `Subagent LLM error: ${res.error}`, iterations, toolCalls });
         }
 
         const reply = parseReply(res.text);
@@ -197,7 +238,7 @@ export class SubagentManager {
             iterations,
             toolCalls,
           });
-          return { success: true, output: finalText, iterations, toolCalls };
+          return withWorktree({ success: true, output: finalText, iterations, toolCalls });
         }
 
         for (const call of calls) {
@@ -211,8 +252,6 @@ export class SubagentManager {
                 `Subagent tried to use unknown tool "${toolName}". Allowed tools: ${definition.requiredTools.join(', ')}.`
               );
             }
-            const providerId = session.providerId || 'local';
-            const provider = await executionManager.getProvider(session.id, providerId);
             const result: ToolExecutionResult = await this.executor.execute(
               toolName,
               parameters,
@@ -242,7 +281,7 @@ export class SubagentManager {
         toolCalls,
         partial: true,
       });
-      return {
+      return withWorktree({
         success: true,
         partial: true,
         output:
@@ -250,7 +289,7 @@ export class SubagentManager {
           `Tool outputs so far:\n\n${truncate(transcript.slice(1).join('\n\n'))}`,
         iterations,
         toolCalls,
-      };
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       globalEventBus.emit('subagent.failed', {
@@ -259,7 +298,7 @@ export class SubagentManager {
         callId,
         error: message,
       });
-      return { success: false, output: '', error: `Subagent crashed: ${message}`, iterations, toolCalls };
+      return withWorktree({ success: false, output: '', error: `Subagent crashed: ${message}`, iterations, toolCalls });
     }
   }
 }
@@ -283,6 +322,11 @@ export const TASK_TOOL_DEFINITION: ToolDefinition = {
       prompt: {
         type: 'string',
         description: 'Complete, self-contained task prompt for the subagent (file paths, goal, constraints).',
+      },
+      isolate: {
+        type: 'boolean',
+        description:
+          'Run the subagent inside an isolated git worktree (local providers only). The worktree is kept and its path is reported for later inspection/merge.',
       },
     },
     required: ['subagent', 'prompt'],
@@ -317,24 +361,34 @@ export function registerTaskTool(llm?: LlmClient): void {
       prompt,
       session: ctx.session,
       model: ctx.session.model,
+      isolate: args.isolate === true,
     });
 
     if (!result.success) {
-      return { toolName: 'task', output: result.error ?? 'Subagent failed.', isError: true };
+      const failExtra = result.worktreePath
+        ? `\n(Worktree kept at ${result.worktreePath} on branch ${result.worktreeBranch})`
+        : '';
+      return { toolName: 'task', output: (result.error ?? 'Subagent failed.') + failExtra, isError: true };
     }
 
     const header = result.partial
       ? `[PARTIAL] Subagent "${subagent}" output (tool-call limit reached):\n`
       : `[SUBAGENT ${subagent}] output:\n`;
+    const worktreeNote = result.worktreePath
+      ? `\n\n[worktree] Changes are isolated in ${result.worktreePath} (branch ${result.worktreeBranch}). Inspect with git diff there, then merge or discard.`
+      : '';
     return {
       toolName: 'task',
-      output: header + result.output,
+      output: header + result.output + worktreeNote,
       isError: false,
       metadata: {
         subagent: subagent,
         iterations: result.iterations,
         toolCalls: result.toolCalls,
         partial: result.partial ?? false,
+        ...(result.worktreePath
+          ? { worktreePath: result.worktreePath, worktreeBranch: result.worktreeBranch }
+          : {}),
       },
     };
   });

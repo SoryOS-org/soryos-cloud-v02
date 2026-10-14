@@ -67,6 +67,9 @@ export interface SubagentRunResult {
   iterations: number;
   toolCalls: number;
   partial?: boolean;
+  /** When isolation was requested and succeeded: kept worktree path (user can inspect/merge). */
+  worktreePath?: string;
+  worktreeBranch?: string;
 }
 
 export interface AgentDefinition {
