@@ -60,7 +60,7 @@ export interface ToolDefinition {
   id: string;
   name: string;
   description: string;
-  category: "filesystem" | "shell" | "process" | "git" | "planning" | "web" | "agent";
+  category: "filesystem" | "shell" | "process" | "git" | "planning" | "web" | "agent" | "mcp";
   parameters: {
     type: "object";
     properties: Record<string, ToolPropertySchema>;
@@ -126,6 +126,39 @@ export interface TodoItem {
   status: "pending" | "in_progress" | "completed";
 }
 
+// 4b. MCP (Model Context Protocol) Server Contracts
+export type McpServerConfig =
+  | {
+      /** Local stdio server: spawned as a child process wherever execution runs. */
+      type: "local";
+      command: string;
+      args?: string[];
+      environment?: Record<string, string>;
+      cwd?: string;
+      /** Handshake timeout (default 15 000 ms). */
+      startupTimeoutMs?: number;
+      /** Per tool-call timeout (default 60 000 ms). */
+      executionTimeoutMs?: number;
+    }
+  | {
+      /** Remote Streamable HTTP server. OAuth is not supported yet; use static headers. */
+      type: "remote";
+      url: string;
+      headers?: Record<string, string>;
+      startupTimeoutMs?: number;
+      executionTimeoutMs?: number;
+    };
+
+export type McpServerState = "connecting" | "connected" | "failed" | "disconnected";
+
+export interface McpServerStatus {
+  server: string;
+  state: McpServerState;
+  toolCount: number;
+  instructions?: string;
+  error?: string;
+}
+
 export interface SessionData {
   id: string;
   title: string;
@@ -158,6 +191,8 @@ export interface SessionData {
   permissionGrants?: Record<string, "allow" | "deny">;
   /** When true, dangerous tools (shell_command, delete_file, git_commit) trigger a permission ask. */
   confirmDangerous?: boolean;
+  /** MCP servers this session may use; connected on demand by the agent planner. */
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 // 5. Event Bus Contracts
@@ -203,6 +238,10 @@ export type AgentEventType =
   | "subagent.failed"
   | "session.compacted"
   | "question.asked"
+  | "mcp.server.connected"
+  | "mcp.server.failed"
+  | "mcp.server.disconnected"
+  | "mcp.tools.registered"
   | "status";
 
 export interface AgentEventPayload {

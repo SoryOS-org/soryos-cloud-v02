@@ -29,6 +29,9 @@ export { parsePatch, deriveUpdate, PatchTools } from "./patch-tools";
 export type { PatchHunk, UpdateFileChunk, ParsePatchResult, PatchApplyResult } from "./patch-tools";
 export { isRipgrepAvailable, resetRipgrepCache, buildRgArgs, ripgrepSearch } from "./ripgrep";
 export type { RipgrepResult } from "./ripgrep";
+export { McpConnection, McpConnectError, DEFAULT_MCP_STARTUP_TIMEOUT_MS, DEFAULT_MCP_EXECUTION_TIMEOUT_MS } from "./mcp-client";
+export type { McpToolInfo, McpCallToolResult } from "./mcp-client";
+export { mcpManager, mcpToolName } from "./mcp-manager";
 
 export type ToolArgs = Record<string, any>;
 
@@ -351,6 +354,10 @@ export class ToolRegistry {
 
   add(tool: ToolDefinition): void {
     this.tools.set(tool.name, tool);
+  }
+
+  remove(name: string): boolean {
+    return this.tools.delete(name);
   }
 
   getTool(name: string): ToolDefinition | undefined {

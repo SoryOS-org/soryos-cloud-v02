@@ -1,6 +1,6 @@
       
 import { contextBuilder, ContextBuilder } from './context-builder';
-import { ToolRegistry, ToolExecutor } from '@soryos/tool';
+import { ToolRegistry, ToolExecutor, mcpManager } from '@soryos/tool';
 import { executionManager } from '@soryos/execution';
 import { SessionData, ToolDefinition } from '@soryos/schema';
 import { Plan, PlanStep, PlannerConfig, PlannerOptions, PlanResult } from './types';
@@ -115,6 +115,17 @@ export class Planner {
       return 'failed';
     }
     const userRequest = lastMessage.content;
+
+    // Connect configured MCP servers before planning so their tools are visible
+    // to the LLM. Failures never block the run — connectServer reports a failed
+    // status + bus event and returns honestly.
+    if (session.mcpServers && Object.keys(session.mcpServers).length > 0) {
+      try {
+        await mcpManager.ensureConnected(session);
+      } catch {
+        /* belt and braces: ensureConnected itself does not throw */
+      }
+    }
 
     // Compact long histories before planning (no-op under threshold;
     // on failure messages stay untouched — honest, never silent loss).
