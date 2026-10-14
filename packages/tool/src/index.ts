@@ -27,6 +27,8 @@ import {
 export * from "./question-tools";
 export { parsePatch, deriveUpdate, PatchTools } from "./patch-tools";
 export type { PatchHunk, UpdateFileChunk, ParsePatchResult, PatchApplyResult } from "./patch-tools";
+export { isRipgrepAvailable, resetRipgrepCache, buildRgArgs, ripgrepSearch } from "./ripgrep";
+export type { RipgrepResult } from "./ripgrep";
 
 export type ToolArgs = Record<string, any>;
 

@@ -19,6 +19,7 @@
 
 import { toolRegistry } from './index';
 import { applyEdit } from './edit-matcher';
+import { isRipgrepAvailable, ripgrepSearch } from './ripgrep';
 import { ExecutionProvider } from '@soryos/execution';
 import { SessionData } from '@soryos/schema';
 import { globalEventBus } from '@soryos/bus';
@@ -769,46 +770,83 @@ export class FilesystemTools {
         return result;
       }
 
-      // Lister les fichiers dans le répertoire
+      // Fast path: real ripgrep when running on a local provider.
+      if (this.provider.type === 'local' && (await isRipgrepAvailable())) {
+        const rg = await ripgrepSearch({
+          pattern: query,
+          caseSensitive,
+          useRegex,
+          maxMatches,
+          cwd: path || undefined,
+          workdir: process.cwd(),
+        });
+        if (rg !== null) {
+          const matches = rg.matches;
+          const emitCompleted = (output: string, count: number, truncated: boolean) => {
+            const result: FileSystemToolResult = {
+              success: true,
+              output,
+              metadata: { count, query, path, engine: 'ripgrep', truncated },
+            };
+            globalEventBus.emit('tool.completed', {
+              toolName: 'grep_search',
+              output: result.output,
+              callId,
+              metadata: result.metadata,
+            });
+            return result;
+          };
+          if (matches.length === 0) {
+            return emitCompleted(`No occurrences of "${query}" found.`, 0, false);
+          }
+          return emitCompleted(
+            `Found ${matches.length} matches for "${query}":\n${matches.join('\n')}`,
+            matches.length,
+            rg.truncated || matches.length >= maxMatches
+          );
+        }
+        // rg failed (exit 2 / crash) → fall through to the portable scan.
+      }
+
+      // Portable fallback: flat recursive listing from the ExecutionProvider.
       const entries = await this.provider.listFiles(path);
       const base = path.replace(/\/+$/, '');
       const matches: string[] = [];
+      const queryToCheck = caseSensitive ? query : query.toLowerCase();
+      let regex: RegExp | null = null;
+      if (useRegex) {
+        try {
+          regex = new RegExp(query, caseSensitive ? '' : 'i');
+        } catch {
+          regex = null; // regex invalide → recherche simple
+        }
+      }
 
       for (const entry of entries) {
         if (entry.isDirectory) continue;
+        if (matches.length >= maxMatches) break;
 
         const fullPath = base ? `${base}/${entry.path}` : entry.path;
         try {
           const content = await this.provider.readFile(fullPath);
           const lines = content.split('\n');
-          
-          lines.forEach((line, idx) => {
-            if (matches.length >= maxMatches) return;
-            
-            const lineToCheck = caseSensitive ? line : line.toLowerCase();
-            const queryToCheck = caseSensitive ? query : query.toLowerCase();
-            
-            // Recherche simple ou regex
-            if (useRegex) {
-              try {
-                const regex = new RegExp(query, caseSensitive ? '' : 'i');
-                if (regex.test(line)) {
-                  matches.push(`${fullPath}:${idx + 1}: ${line.trim()}`);
-                }
-              } catch (e) {
-                // Regex invalide, faire une recherche simple
-                if (lineToCheck.includes(queryToCheck)) {
-                  matches.push(`${fullPath}:${idx + 1}: ${line.trim()}`);
-                }
-              }
+
+          for (let idx = 0; idx < lines.length; idx++) {
+            if (matches.length >= maxMatches) break;
+            const line = lines[idx]!;
+            let hit = false;
+            if (regex) {
+              hit = regex.test(line);
             } else {
-              if (lineToCheck.includes(queryToCheck)) {
-                matches.push(`${fullPath}:${idx + 1}: ${line.trim()}`);
-              }
+              const lineToCheck = caseSensitive ? line : line.toLowerCase();
+              hit = lineToCheck.includes(queryToCheck);
             }
-          });
+            if (hit) {
+              matches.push(`${fullPath}:${idx + 1}: ${line.trim()}`);
+            }
+          }
         } catch {
-          // Ignorer les erreurs de lecture
+          // Ignorer les erreurs de lecture (binaires, etc.)
         }
       }
 
