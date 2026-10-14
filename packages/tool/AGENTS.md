@@ -9,7 +9,7 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - Delegate execution to the active `ExecutionProvider`.
 - Enforce the invariant: *"NO REAL ACTION = NO SUCCESS"*. Every tool MUST perform physical disk/shell actions and verify results.
 
-## Registered Tools (17)
+## Registered Tools (19)
 - `read_file`: Reads file content with 1-based line numbers.
 - `write_file`: Overwrites/creates pristine files on disk.
 - `edit_file`: Multi-tier matching (see below).
@@ -22,6 +22,14 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - `codebase_search`: Semantic search over the codebase.
 - `todo_write` & `todo_read`: Manages task roadmaps.
 - `webfetch`: Fetches an http(s) URL and returns status, headers and body (HTML → text).
+- `patch_file`: Applies a multi-file OpenCode-format patch (see below).
+- `question`: Asks the user interactive questions mid-run (see below).
+
+## `patch_file` (`src/patch-tools.ts`)
+Port of OpenCode's patch language: `*** Begin Patch` / `*** End Patch` envelope with `*** Add File:` (lines prefixed `+`), `*** Delete File:`, `*** Update File:` (optional `*** Move to:`, `@@` context chunks with ` `/`-`/`+` lines, `*** End of File` anchor). Parser + `deriveUpdate` are pure (`parsePatch`, `deriveUpdate` exported). Apply flow = prepare ALL hunks in memory (verify reads + context matches, 4-tier seek: exact→rstrip→trim→unicode-normalized) BEFORE any write; then sequential apply with physical re-read verification; honest partial-failure errors (`Completed before failure: …`).
+
+## `question` (`src/question-tools.ts`)
+Interactive ask (port of OpenCode's question tool): tool emits `question.asked` with a requestId + questions; UI/route answers via `resolveQuestionRequest(requestId, answers)` (or `cancelQuestionRequest`). 120s timeout → cancelled with an honest dismissal message. Free-form answer is implicit; planner prompt guides "(Recommended)" first-option convention. Web route: `POST /api/sessions/[id]/questions` (thin pass-through).
 
 ## `edit_file` Matching Strategy (`src/edit-matcher.ts`)
 Port of OpenCode's edit strategy. `applyEdit(source, oldString, newString, replaceAll)` tries, in order:

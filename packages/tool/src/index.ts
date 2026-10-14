@@ -13,6 +13,20 @@ import { ShellTools, ShellCommandOptions } from "./shell-tools";
 import { GitTools } from "./git-tools";
 import { CodebaseTools } from "./codebase-tools";
 import { WebFetchTool } from "./web-tools";
+import { PatchTools } from "./patch-tools";
+import {
+  createQuestionRequest,
+  resolveQuestionRequest,
+  cancelQuestionRequest,
+  hasPendingQuestionRequest,
+  formatAnswers,
+  validateQuestions,
+  type QuestionPrompt,
+} from "./question-tools";
+
+export * from "./question-tools";
+export { parsePatch, deriveUpdate, PatchTools } from "./patch-tools";
+export type { PatchHunk, UpdateFileChunk, ParsePatchResult, PatchApplyResult } from "./patch-tools";
 
 export type ToolArgs = Record<string, any>;
 
@@ -36,6 +50,8 @@ const ALIASES: Record<string, Record<string, string[]>> = {
   git_commit: { path: ["dir", "directory"] },
   codebase_search: { query: ["question", "search", "pattern"] },
   webfetch: { url: ["link", "href", "uri", "address"] },
+  patch_file: { patch: ["patchText", "patch_text", "diff", "patchTextContent"] },
+  question: { questions: ["prompts", "asks"] },
 };
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -287,6 +303,39 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ["url"],
     },
   },
+  {
+    id: "patch_file",
+    name: "patch_file",
+    description:
+      "Applies a multi-file patch in the OpenCode patch format. The patch language is a file-oriented envelope: *** Begin Patch / *** End Patch, with operations '*** Add File: {path}' (following lines start with '+'), '*** Delete File: {path}' (nothing follows), and '*** Update File: {path}' (optional '*** Move to: {path}', then @@ context chunks where lines start with ' ' context, '-' removed, '+' added; '*** End of File' anchors the last chunk). Every hunk is verified in memory BEFORE any write, so a bad hunk leaves the workspace untouched.",
+    category: "filesystem",
+    parameters: {
+      type: "object",
+      properties: {
+        patch: { type: "string", description: "The full patch text (*** Begin Patch … *** End Patch)" },
+      },
+      required: ["patch"],
+    },
+  },
+  {
+    id: "question",
+    name: "question",
+    description:
+      "Use this tool when you need to ask the user questions during execution. This allows you to: 1. Gather user preferences or requirements, 2. Clarify ambiguous instructions, 3. Get decisions on implementation choices as you work, 4. Offer choices to the user about what direction to take. Usage notes: a free-form answer option is added automatically — do not include a separate option for it; set multiple=true to allow selecting more than one option; if you recommend a specific option, make it the FIRST option and add '(Recommended)' at the end of the label.",
+    category: "agent",
+    parameters: {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          description:
+            'Non-empty array of questions, e.g. [{"question":"Which UI library?","header":"UI","options":[{"label":"Tailwind (Recommended)"}],"multiple":false}]',
+          items: { type: "object" },
+        },
+      },
+      required: ["questions"],
+    },
+  },
 ];
 
 export class ToolRegistry {
@@ -323,6 +372,7 @@ export interface ToolBundle {
   git: GitTools;
   codebase: CodebaseTools;
   web: WebFetchTool;
+  patch: PatchTools;
 }
 
 export interface HandlerContext {
@@ -333,6 +383,7 @@ export interface HandlerContext {
   git: GitTools;
   codebase: CodebaseTools;
   web: WebFetchTool;
+  patch: PatchTools;
 }
 
 export type ToolHandler = (args: ToolArgs, ctx: HandlerContext) => Promise<ToolExecutionResult>;
@@ -591,6 +642,46 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
     return normalizeSuccess("webfetch", true, r.output ?? "", r.metadata);
   },
+  patch_file: async (args, ctx) => {
+    const patch = asString(requireValue(args, "patch_file", "patch"), "patch");
+    const r = await ctx.patch.applyPatch(patch);
+    if (!r.success) {
+      return { toolName: "patch_file", output: r.error ?? "patch failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("patch_file", true, r.output ?? "", r.metadata, true);
+  },
+  question: async (args, ctx) => {
+    const rawQuestions = pick(args, "question", "questions");
+    const validated = validateQuestions(rawQuestions);
+    if (!validated.ok) {
+      return { toolName: "question", output: validated.error, isError: true };
+    }
+    const questions: QuestionPrompt[] = validated.questions;
+
+    const { requestId, answers } = createQuestionRequest(ctx.session.id, questions);
+    globalEventBus.emit("question.asked", {
+      requestId,
+      sessionId: ctx.session.id,
+      questions: questions.map((q) => ({
+        question: q.question,
+        header: q.header,
+        options: q.options,
+        multiple: q.multiple,
+      })),
+    });
+
+    const resolved = await answers;
+    if (resolved === null) {
+      return {
+        toolName: "question",
+        output:
+          "The user dismissed this question (or did not answer in time). Continue with your best judgement and state your assumption.",
+        isError: true,
+        metadata: { requestId, cancelled: true },
+      };
+    }
+    return normalizeSuccess("question", true, formatAnswers(questions, resolved), { requestId, answers: resolved });
+  },
   todo_write: async (args, ctx) => {
     const todos = normalizeTodos(requireValue(args, "todo_write", "todos"));
     ctx.session.todos = todos;
@@ -643,6 +734,7 @@ export class ToolExecutor {
         git: new GitTools(provider),
         codebase: new CodebaseTools(provider),
         web: new WebFetchTool(),
+        patch: new PatchTools(provider),
       };
       this.bundles.set(provider, bundle);
     }

@@ -202,6 +202,7 @@ export type AgentEventType =
   | "subagent.completed"
   | "subagent.failed"
   | "session.compacted"
+  | "question.asked"
   | "status";
 
 export interface AgentEventPayload {
