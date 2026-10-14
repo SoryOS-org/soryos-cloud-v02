@@ -60,7 +60,7 @@ export interface ToolDefinition {
   id: string;
   name: string;
   description: string;
-  category: "filesystem" | "shell" | "process" | "git" | "planning" | "web";
+  category: "filesystem" | "shell" | "process" | "git" | "planning" | "web" | "agent";
   parameters: {
     type: "object";
     properties: Record<string, ToolPropertySchema>;
@@ -120,6 +120,12 @@ export interface SessionError {
   recoverySuggestions?: string[];
 }
 
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
 export interface SessionData {
   id: string;
   title: string;
@@ -142,8 +148,16 @@ export interface SessionData {
   preview_url: string | null;
   needs_run: boolean;
   agent_running: boolean;
+  agentId?: string;
   cwd: string;
   errors?: SessionError[];
+  todos?: TodoItem[];
+  /** Compact summary of archived conversation history (see SessionCompactor). */
+  memorySummary?: string;
+  /** Per-session tool grants written by the "ask" flow (allow-always / deny-always). */
+  permissionGrants?: Record<string, "allow" | "deny">;
+  /** When true, dangerous tools (shell_command, delete_file, git_commit) trigger a permission ask. */
+  confirmDangerous?: boolean;
 }
 
 // 5. Event Bus Contracts
@@ -184,6 +198,10 @@ export type AgentEventType =
   | "permission.requested"
   | "permission.granted"
   | "permission.denied"
+  | "subagent.started"
+  | "subagent.completed"
+  | "subagent.failed"
+  | "session.compacted"
   | "status";
 
 export interface AgentEventPayload {

@@ -95,6 +95,7 @@ export interface GenerateOptions {
   messages: ChatMessage[];
   systemPrompt?: string;
   temperature?: number;
+  apiKey?: string;
 }
 
 export interface GenerateResult {

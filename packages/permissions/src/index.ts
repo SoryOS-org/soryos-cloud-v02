@@ -8,6 +8,57 @@ export interface PermissionCheckResult {
   reason?: string;
 }
 
+export type PermissionDecision = 'allow-once' | 'allow-always' | 'deny-once' | 'deny-always';
+
+/** Tools that can trigger an interactive "ask" in build mode when confirmDangerous is enabled. */
+export const DANGEROUS_TOOLS = new Set(['shell_command', 'delete_file', 'git_commit']);
+
+export const PERMISSION_ASK_TIMEOUT_MS = 30_000;
+
+interface PendingPermissionRequest {
+  resolve: (decision: PermissionDecision) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const pendingPermissionRequests = new Map<string, PendingPermissionRequest>();
+
+/**
+ * Creates a pending permission request. The decision promise resolves with the
+ * user's choice, or 'deny-once' after timeoutMs (safe default — never hang forever).
+ * Callers emit a `permission.request` bus event carrying the requestId; a UI/route
+ * answers via resolvePermissionRequest().
+ */
+export function createPermissionRequest(
+  sessionId: string,
+  toolName: string,
+  args: object | undefined,
+  timeoutMs: number = PERMISSION_ASK_TIMEOUT_MS
+): { requestId: string; decision: Promise<PermissionDecision> } {
+  const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const decision = new Promise<PermissionDecision>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingPermissionRequests.delete(requestId);
+      resolve('deny-once');
+    }, timeoutMs);
+    pendingPermissionRequests.set(requestId, { resolve, timer });
+  });
+  return { requestId, decision };
+}
+
+/** Resolves a pending request. Returns false if the request is unknown/expired. */
+export function resolvePermissionRequest(requestId: string, decision: PermissionDecision): boolean {
+  const pending = pendingPermissionRequests.get(requestId);
+  if (!pending) return false;
+  clearTimeout(pending.timer);
+  pendingPermissionRequests.delete(requestId);
+  pending.resolve(decision);
+  return true;
+}
+
+export function hasPendingPermissionRequest(requestId: string): boolean {
+  return pendingPermissionRequests.has(requestId);
+}
+
 export class PermissionsManager {
   private static readonly READ_ONLY_TOOLS = new Set([
     "read_file",
@@ -38,8 +89,9 @@ export class PermissionsManager {
     "git",
   ]);
 
-  public checkPermission(agentMode: string, toolName: string, args?: Record<string, unknown>): PermissionCheckResult {
+  public checkPermission(agentMode: string, toolName: string, args?: object): PermissionCheckResult {
     const mode = (agentMode || "build").toLowerCase();
+    const rawArgs = (args ?? {}) as Record<string, unknown>;
 
     // 1. Build Agent: Full Autonomous Access
     if (mode === "build") {
@@ -58,7 +110,7 @@ export class PermissionsManager {
         };
       }
       if (PermissionsManager.EXEC_TOOLS.has(toolName)) {
-        const cmd = String(args?.command || args?.CommandLine || "").trim().toLowerCase();
+        const cmd = String(rawArgs.command || rawArgs.CommandLine || "").trim().toLowerCase();
         if (cmd === "pwd" || cmd.startsWith("ls") || cmd === "git status" || cmd.startsWith("git log")) {
           return { allowed: true };
         }

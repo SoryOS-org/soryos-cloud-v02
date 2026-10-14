@@ -1,4 +1,4 @@
-import { computeFingerprint, maskSecret } from "@soryos/provider";
+import { computeFingerprint, maskSecret, setCredentialResolver } from "@soryos/provider";
 import type { ResolvedCredential, CredentialSource } from "@soryos/provider";
 
 export type AuthMethod = "github_oauth" | "api_key" | "api_token" | "service_account";
@@ -491,3 +491,11 @@ export class CredentialManager {
 }
 
 export const credentialManager = new CredentialManager();
+
+setCredentialResolver((providerId, sessionId) => {
+  const resolved = credentialManager.resolveCredentials(providerId, sessionId);
+  if (!resolved.isConfigured || !resolved.apiKey) {
+    return undefined;
+  }
+  return { apiKey: resolved.apiKey, source: resolved.source };
+});

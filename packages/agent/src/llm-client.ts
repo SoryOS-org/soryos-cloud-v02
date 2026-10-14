@@ -1,72 +1,105 @@
-
-import { Anthropic } from '@anthropic-ai/sdk';
+import { aiProviderRegistry, type AIProvider } from '@soryos/provider';
+import '@soryos/credentials';
 
 export interface LlmClient {
-  generate(options: { prompt: string; systemPrompt?: string; model?: string }): Promise<{ text: string, error?: string }>;
-  streamChat(options: { prompt: string; systemPrompt?: string; model?: string }): AsyncGenerator<{ text: string, error?: string }>;
+  generate(options: {
+    prompt: string;
+    systemPrompt?: string;
+    model?: string;
+    sessionId?: string;
+    temperature?: number;
+  }): Promise<{ text: string; error?: string }>;
+  streamChat(options: {
+    prompt: string;
+    systemPrompt?: string;
+    model?: string;
+    sessionId?: string;
+    temperature?: number;
+  }): AsyncGenerator<{ text: string; error?: string }>;
+}
+
+function resolveProviderForModel(model: string): AIProvider {
+  const lower = model.toLowerCase();
+  if (lower.startsWith('claude')) {
+    return aiProviderRegistry.getRequiredProvider('anthropic');
+  }
+  if (lower.startsWith('gemini')) {
+    return aiProviderRegistry.getRequiredProvider('google');
+  }
+  if (lower.startsWith('gpt') || lower.startsWith('o1') || lower.startsWith('o3') || lower.startsWith('chatgpt')) {
+    return aiProviderRegistry.getRequiredProvider('openai');
+  }
+  if (lower.startsWith('mistral') || lower.startsWith('codestral') || lower.startsWith('ministral')) {
+    return aiProviderRegistry.getRequiredProvider('mistral');
+  }
+  if (lower.startsWith('deepseek')) {
+    return aiProviderRegistry.getRequiredProvider('deepseek');
+  }
+  if (lower.startsWith('grok')) {
+    return aiProviderRegistry.getRequiredProvider('grok');
+  }
+
+  const byModels = aiProviderRegistry
+    .getAllProviders()
+    .find((p) => p.listModels().some((m) => m.id === model));
+  if (byModels) return byModels;
+
+  throw new Error(
+    `Modèle inconnu : "${model}". Sélectionnez un modèle supporté dans les paramètres.`
+  );
 }
 
 class DefaultLlmClient implements LlmClient {
-  private anthropic: Anthropic | undefined;
-
-  private getClient(): Anthropic {
-    if (this.anthropic) {
-      return this.anthropic;
-    }
-    // The Anthropic SDK will automatically pick up the ANTHROPIC_API_KEY from the environment.
-    this.anthropic = new Anthropic();
-    return this.anthropic;
-  }
-  
-  async generate(options: { prompt: string; systemPrompt?: string; model?: string }): Promise<{ text: string, error?: string }> {
+  async generate(options: {
+    prompt: string;
+    systemPrompt?: string;
+    model?: string;
+    sessionId?: string;
+    temperature?: number;
+  }): Promise<{ text: string; error?: string }> {
     try {
-      const client = this.getClient();
-      const { prompt, systemPrompt, model } = options;
-
-      const response = await client.messages.create({
-        model: model || 'claude-3-opus-20240229',
-        system: systemPrompt,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 4096,
+      const model = options.model || 'claude-3-5-sonnet';
+      const provider = resolveProviderForModel(model);
+      const result = await provider.generate({
+        sessionId: options.sessionId,
+        modelId: model,
+        systemPrompt: options.systemPrompt,
+        temperature: options.temperature,
+        messages: [{ role: 'user', content: options.prompt }],
       });
-
-      if (response.content.length === 0 || response.content[0].type !== 'text') {
-        return { text: '', error: 'No text content in LLM response' };
+      if (!result.text) {
+        return { text: '', error: `${provider.name} a répondu avec un contenu vide.` };
       }
-      
-      const text = response.content[0].text;
-      return { text };
-
+      return { text: result.text };
     } catch (e) {
-        if (e instanceof Error) {
-            return { text: '', error: e.message };
-        }
-        return { text: '', error: 'Unknown error during LLM generation' };
+      return { text: '', error: e instanceof Error ? e.message : String(e) };
     }
   }
 
-  async *streamChat(options: { prompt: string; systemPrompt?: string; model?: string }): AsyncGenerator<{ text: string, error?: string }> {
+  async *streamChat(options: {
+    prompt: string;
+    systemPrompt?: string;
+    model?: string;
+    sessionId?: string;
+    temperature?: number;
+  }): AsyncGenerator<{ text: string; error?: string }> {
     try {
-      const client = this.getClient();
-      const { prompt, systemPrompt, model } = options;
-
-      const stream = await client.messages.stream({
-        model: model || 'claude-3-opus-20240229',
-        system: systemPrompt,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 4096,
+      const model = options.model || 'claude-3-5-sonnet';
+      const provider = resolveProviderForModel(model);
+      const stream = provider.stream({
+        sessionId: options.sessionId,
+        modelId: model,
+        systemPrompt: options.systemPrompt,
+        temperature: options.temperature,
+        messages: [{ role: 'user', content: options.prompt }],
       });
-
       for await (const chunk of stream) {
-        if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-          yield { text: chunk.delta.text };
+        if (chunk.delta) {
+          yield { text: chunk.delta };
         }
       }
     } catch (e) {
-        if (e instanceof Error) {
-            yield { text: '', error: e.message };
-        }
-        yield { text: '', error: 'Unknown error during LLM generation' };
+      yield { text: '', error: e instanceof Error ? e.message : String(e) };
     }
   }
 }

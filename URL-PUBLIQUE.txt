@@ -2,16 +2,16 @@
 
 ## 🌍 Ouvre cette URL dans ton navigateur :
 
-https://skirts-forum-myers-equations.trycloudflare.com
+https://governments-acquired-plastic-shipped.trycloudflare.com
 
 ---
 
 ## Détails
 - Type     : Cloudflare Quick Tunnel (cloudflared) — gratuit, sans compte
 - Cible    : http://localhost:3000 (serveur Next.js dev, bind 0.0.0.0:3000)
-- Processus : cloudflared PID 56159 (lancé le 13/10/2026 à 12:31)
-- Log      : /tmp/opencode/tunnel.log
-- Testé    : HTTP 200 ✅
+- Processus : cloudflared lancé le 14/10/2026 (binaire /tmp/opencode/cloudflared)
+- Log      : /tmp/opencode/cloudflared.log
+- Testé    : HTTP 200 ✅ (14/10/2026)
 
 ## IP publique de la VM (pour info)
 - 35.240.73.95 (NAT sortante Google Cloud — le port 3000 n'y est PAS ouvert

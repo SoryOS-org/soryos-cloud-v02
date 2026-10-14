@@ -10,6 +10,13 @@
     "@soryos/core": "*",
     "@soryos/execution": "*",
     "@soryos/permissions": "*",
-    "@soryos/schema": "*"
+    "@soryos/schema": "*",
+    "@soryos/session": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  },
+  "scripts": {
+    "test:engine": "vitest run"
   }
 }

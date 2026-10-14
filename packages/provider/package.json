@@ -8,5 +8,11 @@
     "@google/genai": "^2.26.0",
     "@soryos/core": "*",
     "@soryos/schema": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  },
+  "scripts": {
+    "test:engine": "vitest run"
   }
 }

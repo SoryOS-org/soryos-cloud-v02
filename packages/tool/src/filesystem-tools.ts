@@ -18,6 +18,7 @@
  */
 
 import { toolRegistry } from './index';
+import { applyEdit } from './edit-matcher';
 import { ExecutionProvider } from '@soryos/execution';
 import { SessionData } from '@soryos/schema';
 import { globalEventBus } from '@soryos/bus';
@@ -70,6 +71,31 @@ export interface FileSystemToolResult {
   error?: string;
   metadata?: Record<string, any>;
   verified?: boolean;
+}
+
+function globToRegExp(pattern: string, caseSensitive: boolean): RegExp {
+  let source = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i];
+    if (char === '*') {
+      if (pattern[i + 1] === '*') {
+        i++;
+        if (pattern[i + 1] === '/') {
+          i++;
+          source += '(?:[^/]+/)*';
+        } else {
+          source += '.*';
+        }
+      } else {
+        source += '[^/]*';
+      }
+    } else if (char === '?') {
+      source += '[^/]';
+    } else {
+      source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  return new RegExp(`^${source}$`, caseSensitive ? '' : 'i');
 }
 
 /**
@@ -267,111 +293,99 @@ export class FilesystemTools {
 
   /**
    * Éditer un fichier (remplacement chirurgical) avec vérification
-   * 
+  /**
+   * Remplacement exact multi-paliers (port de la stratégie edit d'OpenCode).
+   * Voir edit-matcher.ts : bytes exacts → unicité normalisée → lignes tolérantes.
+   *
    * @param filePath - Chemin du fichier
-   * @param targetContent - Contenu exact à remplacer
-   * @param replacementContent - Nouveau contenu
-   * @param allOccurrences - Remplacer toutes les occurrences (défaut: première seule)
-   * @returns Résultat avec vérification
+   * @param targetContent - Contenu exact à remplacer (ancien texte)
+   * @param replacementContent - Nouveau contenu (doit différer)
+   * @param replaceAll - Remplacer toutes les occurrences (sinon unicité exigée)
+   * @returns Résultat vérifié sur disque
    */
   async editFile(
     filePath: string,
     targetContent: string,
     replacementContent: string,
-    allOccurrences: boolean = false
+    replaceAll: boolean = false
   ): Promise<FileSystemToolResult> {
     const callId = `edit-${Date.now()}`;
-    
+
     try {
-      // Vérifier les permissions
-      const perm = permissionsManager.checkPermission('build', 'edit_file', { 
-        filePath, 
+      const perm = permissionsManager.checkPermission('build', 'edit_file', {
+        filePath,
         targetContent,
-        replacementContent 
+        replacementContent,
       });
       if (!perm.allowed) {
-        globalEventBus.emit('permission.denied', { 
-          toolName: 'edit_file', 
+        globalEventBus.emit('permission.denied', {
+          toolName: 'edit_file',
           reason: perm.reason,
-          callId 
+          callId,
         });
         return {
           success: false,
-          error: `PERMISSION DENIED: ${perm.reason}`
+          error: `PERMISSION DENIED: ${perm.reason}`,
         };
       }
 
-      globalEventBus.emit('tool.started', { 
-        toolName: 'edit_file', 
-        input: { filePath, targetLength: targetContent.length, replacementLength: replacementContent.length },
-        callId 
+      globalEventBus.emit('tool.started', {
+        toolName: 'edit_file',
+        input: { filePath, targetLength: targetContent.length, replacementLength: replacementContent.length, replaceAll },
+        callId,
       });
 
-      // Lire le contenu actuel
       const currentContent = await this.provider.readFile(filePath);
-      
-      // Effectuer le remplacement
-      let newContent: string;
-      if (allOccurrences) {
-        newContent = currentContent.split(targetContent).join(replacementContent);
-      } else {
-        newContent = currentContent.replace(targetContent, replacementContent);
-      }
-      
-      // Vérifier que le remplacement a eu lieu
-      if (newContent === currentContent) {
-        throw new Error(`Target content not found in ${filePath}`);
-      }
-      
-      // Écrire le nouveau contenu
-      await this.provider.writeFile(filePath, newContent);
-      
-      // VÉRIFICATION PHYSIQUE: Relire et vérifier que le remplacement est présent
-      const verifiedContent = await this.provider.readFile(filePath);
-      
-      if (!verifiedContent.includes(replacementContent)) {
-        throw new Error(`Edit verification failed: replacement not found in ${filePath}`);
+
+      const outcome = applyEdit(currentContent, targetContent, replacementContent, replaceAll);
+      if (outcome.error) {
+        throw new Error(outcome.error);
       }
 
-      globalEventBus.emit('file.changed', { 
-        path: filePath, 
-        action: 'edit' 
+      await this.provider.writeFile(filePath, outcome.content);
+
+      const verifiedContent = await this.provider.readFile(filePath);
+      if (verifiedContent !== outcome.content) {
+        throw new Error(`Edit verification failed: re-read content differs from expected result in ${filePath}.`);
+      }
+
+      globalEventBus.emit('file.changed', {
+        path: filePath,
+        action: 'edit',
       });
 
       const result: FileSystemToolResult = {
         success: true,
-        output: `[SUCCESS] Verified surgical edit to ${filePath}.`,
+        output: `[SUCCESS] Edited ${filePath} (${outcome.applied} replacement${outcome.applied === 1 ? '' : 's'}).`,
         metadata: {
           filePath,
-          targetLength: targetContent.length,
-          replacementLength: replacementContent.length,
-          occurrencesReplaced: allOccurrences ? 
-            (currentContent.split(targetContent).length - 1) : 1
+          occurrencesFound: outcome.replacements,
+          replacementsApplied: outcome.applied,
+          replaceAll,
         },
-        verified: true
+        verified: true,
       };
 
-      globalEventBus.emit('tool.completed', { 
-        toolName: 'edit_file', 
+      globalEventBus.emit('tool.completed', {
+        toolName: 'edit_file',
         output: result.output,
         callId,
-        metadata: result.metadata 
+        metadata: result.metadata,
       });
 
       return result;
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      globalEventBus.emit('tool.failed', { 
-        toolName: 'edit_file', 
+
+      globalEventBus.emit('tool.failed', {
+        toolName: 'edit_file',
         error: errorMessage,
-        callId 
+        callId,
       });
 
       return {
         success: false,
-        error: `Failed to edit file: ${errorMessage}`
+        error: `Failed to edit file: ${errorMessage}`,
       };
     }
   }
@@ -546,12 +560,17 @@ export class FilesystemTools {
         ? entries 
         : entries.filter(e => !e.name.startsWith('.'));
 
+      // Les chemins renvoyés par le provider sont relatifs au dossier listé :
+      // les préfixer pour que les résultats restent exploitables.
+      const base = directoryPath.replace(/\/+$/, '');
+
       // Formater les entrées
       const formatted = filteredEntries
         .map((e: FileEntry) => {
+          const fullPath = base ? `${base}/${e.path}` : e.path;
           const prefix = e.isDirectory ? '[DIR] ' : '      ';
           const sizeStr = e.isDirectory ? '' : ` (${e.sizeBytes} B)`;
-          return `${prefix}${e.path}${sizeStr}`;
+          return `${prefix}${fullPath}${sizeStr}`;
         })
         .join('\n');
 
@@ -629,18 +648,19 @@ export class FilesystemTools {
 
       // Lister tous les fichiers
       const allEntries = await this.provider.listFiles(directoryPath);
-      
-      // Filtrer par pattern
-      const normalizedPattern = pattern.toLowerCase();
+      const base = directoryPath.replace(/\/+$/, '');
+
+      // Filtrer par pattern (glob réel : **, *, ?)
+      const regex = globToRegExp(pattern, caseSensitive);
       const matched = allEntries.filter((entry: FileEntry) => {
         if (entry.isDirectory) return false;
-        
-        const entryPath = caseSensitive ? entry.path : entry.path.toLowerCase();
-        const cleanPattern = normalizedPattern.replace(/^\*\*\//, '').replace(/^\*/, '');
-        
-        return entryPath.includes(cleanPattern) || 
-               entry.name.toLowerCase().includes(cleanPattern);
+        const fullPath = base ? `${base}/${entry.path}` : entry.path;
+        if (regex.test(fullPath)) return true;
+        if (!pattern.includes('/')) return regex.test(entry.name);
+        return false;
       });
+      const displayPath = (entry: FileEntry) =>
+        base ? `${base}/${entry.path}` : entry.path;
 
       if (matched.length === 0) {
         const result: FileSystemToolResult = {
@@ -661,11 +681,11 @@ export class FilesystemTools {
 
       const result: FileSystemToolResult = {
         success: true,
-        output: `Matched ${matched.length} files for pattern "${pattern}":\n${matched.map((m: FileEntry) => m.path).join('\n')}`,
+        output: `Matched ${matched.length} files for pattern "${pattern}":\n${matched.map(displayPath).join('\n')}`,
         metadata: {
           count: matched.length,
           pattern,
-          files: matched.map((m: FileEntry) => m.path)
+          files: matched.map(displayPath)
         }
       };
 
@@ -751,13 +771,15 @@ export class FilesystemTools {
 
       // Lister les fichiers dans le répertoire
       const entries = await this.provider.listFiles(path);
+      const base = path.replace(/\/+$/, '');
       const matches: string[] = [];
 
       for (const entry of entries) {
         if (entry.isDirectory) continue;
-        
+
+        const fullPath = base ? `${base}/${entry.path}` : entry.path;
         try {
-          const content = await this.provider.readFile(entry.path);
+          const content = await this.provider.readFile(fullPath);
           const lines = content.split('\n');
           
           lines.forEach((line, idx) => {
@@ -769,19 +791,19 @@ export class FilesystemTools {
             // Recherche simple ou regex
             if (useRegex) {
               try {
-                const regex = new RegExp(queryToCheck, caseSensitive ? '' : 'i');
-                if (regex.test(lineToCheck)) {
-                  matches.push(`${entry.path}:${idx + 1}: ${line.trim()}`);
+                const regex = new RegExp(query, caseSensitive ? '' : 'i');
+                if (regex.test(line)) {
+                  matches.push(`${fullPath}:${idx + 1}: ${line.trim()}`);
                 }
               } catch (e) {
                 // Regex invalide, faire une recherche simple
                 if (lineToCheck.includes(queryToCheck)) {
-                  matches.push(`${entry.path}:${idx + 1}: ${line.trim()}`);
+                  matches.push(`${fullPath}:${idx + 1}: ${line.trim()}`);
                 }
               }
             } else {
               if (lineToCheck.includes(queryToCheck)) {
-                matches.push(`${entry.path}:${idx + 1}: ${line.trim()}`);
+                matches.push(`${fullPath}:${idx + 1}: ${line.trim()}`);
               }
             }
           });

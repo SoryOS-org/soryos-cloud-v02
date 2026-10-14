@@ -5,6 +5,84 @@
 
 import { AIProvider, ModelInfo, GenerateOptions, GenerateResult, StreamOptions, StreamChunk, ResolvedCredential, ProviderConnectionTestResult, ProviderAITestResult } from "./types";
 import { SUPPORTED_AI_MODELS } from "./models";
+import { resolveLiveCredential } from "./credential-bridge";
+
+async function probeEndpoint(
+  providerId: string,
+  endpoint: string,
+  apiKey: string
+): Promise<{ status: number; latencyMs: number; error?: string }> {
+  const started = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    let url = `${endpoint.replace(/\/$/, "")}/models`;
+    let headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
+    if (providerId === "anthropic") {
+      url = "https://api.anthropic.com/v1/models";
+      headers = { "x-api-key": apiKey, "anthropic-version": "2023-06-01" };
+    } else if (providerId === "google" || providerId === "gemini") {
+      url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+      headers = {};
+    }
+    const response = await fetch(url, { headers, signal: controller.signal });
+    return { status: response.status, latencyMs: Date.now() - started };
+  } catch (error) {
+    return {
+      status: 0,
+      latencyMs: Date.now() - started,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function connectionResult(
+  providerId: string,
+  providerName: string,
+  endpoint: string,
+  model: string,
+  ok: boolean,
+  fields: {
+    message: string;
+    httpStatus?: number;
+    latencyMs: number;
+    credentialStatus: "found" | "missing";
+    credentialSource: "session_override" | "project_store" | "environment_variable" | "none";
+    credentialSourceLabel: string;
+    networkStatus: "passed" | "failed";
+    authStatus: "passed" | "failed";
+    apiStatus: "passed" | "failed";
+    finalResult: "connected" | "auth_failed" | "network_error" | "invalid_endpoint" | "runtime_error" | "not_configured";
+    errorMessage?: string;
+  }
+): ProviderConnectionTestResult {
+  return {
+    success: ok,
+    status: ok ? "connected" : "error",
+    httpStatus: fields.httpStatus,
+    message: fields.message,
+    latencyMs: fields.latencyMs,
+    diagnostics: {
+      providerId,
+      providerName,
+      credentialStatus: fields.credentialStatus,
+      credentialSource: fields.credentialSource,
+      credentialSourceLabel: fields.credentialSourceLabel,
+      runtimeStatus: ok ? "initialized" : "error",
+      endpoint,
+      model,
+      networkStatus: fields.networkStatus,
+      authStatus: fields.authStatus,
+      apiStatus: fields.apiStatus,
+      httpStatus: fields.httpStatus,
+      latencyMs: fields.latencyMs,
+      finalResult: fields.finalResult,
+      errorMessage: fields.errorMessage,
+    },
+  };
+}
 
 /**
  * Generic AI Provider - fallback for any provider
@@ -34,16 +112,41 @@ export class GenericAIProvider implements AIProvider {
   }
 
   resolveCredentials(sessionId?: string): ResolvedCredential {
-    const apiKey = this.getApiKey();
+    const live = resolveLiveCredential(this.id, sessionId);
+    const apiKey = (live?.apiKey || this.getApiKey() || "").trim();
+    const source: ResolvedCredential["source"] = live?.apiKey
+      ? ((live.source as ResolvedCredential["source"]) || "project_store")
+      : apiKey
+        ? "environment_variable"
+        : "none";
+    const sourceLabel =
+      source === "session_override"
+        ? "Session Store"
+        : source === "project_store"
+          ? "Paramètres (UI)"
+          : source === "environment_variable"
+            ? "Variable d'environnement"
+            : "Non configuré";
     return {
       providerId: this.id,
-      source: apiKey ? "environment_variable" : "none",
-      sourceLabel: apiKey ? "Variable d'environnement" : "Non configuré",
+      source,
+      sourceLabel,
       isConfigured: Boolean(apiKey),
-      keyLength: apiKey ? apiKey.length : 0,
+      keyLength: apiKey.length,
       fingerprint: apiKey ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : "",
       apiKey: apiKey || undefined,
     };
+  }
+
+  protected resolveKey(options?: { apiKey?: string; sessionId?: string }): string | null {
+    if (options?.apiKey && options.apiKey.trim()) {
+      return options.apiKey.trim();
+    }
+    const live = resolveLiveCredential(this.id, options?.sessionId);
+    if (live?.apiKey && live.apiKey.trim()) {
+      return live.apiKey.trim();
+    }
+    return this.getApiKey();
   }
 
   protected getApiKey(): string | null {
@@ -67,98 +170,267 @@ export class GenericAIProvider implements AIProvider {
   }
 
   async testConnection(options?: { sessionId?: string; modelId?: string }): Promise<ProviderConnectionTestResult> {
-    const apiKey = this.getApiKey();
-    const start = Date.now();
-    const isConfigured = Boolean(apiKey && apiKey.trim().length > 0);
-    const latencyMs = Date.now() - start;
+    const model = options?.modelId || this.getDefaultModel();
+    const live = resolveLiveCredential(this.id, options?.sessionId);
+    const apiKey = (live?.apiKey || this.getApiKey() || "").trim();
+    const credentialSource: "session_override" | "project_store" | "environment_variable" | "none" = live?.apiKey
+      ? ((live.source as "session_override" | "project_store" | "environment_variable") || "project_store")
+      : apiKey
+        ? "environment_variable"
+        : "none";
+    const credentialSourceLabel =
+      credentialSource === "session_override"
+        ? "Session Store"
+        : credentialSource === "project_store"
+          ? "Paramètres (UI)"
+          : credentialSource === "environment_variable"
+            ? "Variable d'environnement"
+            : "Non configuré";
 
-    return {
-      success: isConfigured,
-      status: isConfigured ? "connected" : "error",
-      httpStatus: isConfigured ? 200 : 401,
-      message: isConfigured
-        ? `Connected to ${this.name}`
-        : `API key missing or invalid for ${this.name}`,
-      latencyMs,
-      diagnostics: {
-        providerId: this.id,
-        providerName: this.name,
-        credentialStatus: isConfigured ? "found" : "missing",
-        credentialSource: isConfigured ? "environment_variable" : "none",
-        credentialSourceLabel: isConfigured ? "Environment Variable" : "Not configured",
-        runtimeStatus: isConfigured ? "initialized" : "error",
-        endpoint: this.getEndpoint(),
-        model: options?.modelId || this.getDefaultModel(),
-        networkStatus: isConfigured ? "passed" : "failed",
-        authStatus: isConfigured ? "passed" : "failed",
-        apiStatus: isConfigured ? "passed" : "failed",
-        httpStatus: isConfigured ? 200 : 401,
-        latencyMs,
-        finalResult: isConfigured ? "connected" : "not_configured",
-      },
-    };
+    if (!apiKey) {
+      return connectionResult(this.id, this.name, this.getEndpoint(), model, false, {
+        message: `Clé API manquante pour ${this.name}. Ajoutez-la dans les paramètres ou via une variable d'environnement.`,
+        httpStatus: 401,
+        latencyMs: 0,
+        credentialStatus: "missing",
+        credentialSource: "none",
+        credentialSourceLabel,
+        networkStatus: "failed",
+        authStatus: "failed",
+        apiStatus: "failed",
+        finalResult: "not_configured",
+      });
+    }
+
+    const probe = await probeEndpoint(this.id, this.getEndpoint(), apiKey);
+    const ok = probe.status === 200;
+
+    if (probe.status === 0) {
+      return connectionResult(this.id, this.name, this.getEndpoint(), model, false, {
+        message: `Erreur réseau vers ${this.name} : ${probe.error}`,
+        latencyMs: probe.latencyMs,
+        credentialStatus: "found",
+        credentialSource,
+        credentialSourceLabel,
+        networkStatus: "failed",
+        authStatus: "passed",
+        apiStatus: "failed",
+        finalResult: "network_error",
+        errorMessage: probe.error,
+      });
+    }
+    if (probe.status === 401 || probe.status === 403) {
+      return connectionResult(this.id, this.name, this.getEndpoint(), model, false, {
+        message: `Authentification refusée par ${this.name} (HTTP ${probe.status}) : clé invalide ou révoquée.`,
+        httpStatus: probe.status,
+        latencyMs: probe.latencyMs,
+        credentialStatus: "found",
+        credentialSource,
+        credentialSourceLabel,
+        networkStatus: "passed",
+        authStatus: "failed",
+        apiStatus: "failed",
+        finalResult: "auth_failed",
+      });
+    }
+    if (!ok) {
+      return connectionResult(this.id, this.name, this.getEndpoint(), model, false, {
+        message: `${this.name} a répondu HTTP ${probe.status}.`,
+        httpStatus: probe.status,
+        latencyMs: probe.latencyMs,
+        credentialStatus: "found",
+        credentialSource,
+        credentialSourceLabel,
+        networkStatus: "passed",
+        authStatus: "passed",
+        apiStatus: "failed",
+        finalResult: probe.status === 404 ? "invalid_endpoint" : "runtime_error",
+      });
+    }
+
+    return connectionResult(this.id, this.name, this.getEndpoint(), model, true, {
+      message: `Connecté à ${this.name} (${probe.latencyMs} ms).`,
+      httpStatus: probe.status,
+      latencyMs: probe.latencyMs,
+      credentialStatus: "found",
+      credentialSource,
+      credentialSourceLabel,
+      networkStatus: "passed",
+      authStatus: "passed",
+      apiStatus: "passed",
+      finalResult: "connected",
+    });
   }
 
   async testAI(options?: { sessionId?: string; modelId?: string; prompt?: string }): Promise<ProviderAITestResult> {
-    const conn = await this.testConnection(options);
     const prompt = options?.prompt || "Réponds uniquement : OK";
-    return {
-      success: conn.success,
-      prompt,
-      response: conn.success ? "OK" : "",
-      model: options?.modelId || this.getDefaultModel(),
-      latencyMs: conn.latencyMs,
-      httpStatus: conn.httpStatus,
-      error: conn.success ? undefined : conn.message,
-      diagnostics: conn.diagnostics,
-    };
+    const model = options?.modelId || this.getDefaultModel();
+    const conn = await this.testConnection(options);
+    if (!conn.success) {
+      return {
+        success: false,
+        prompt,
+        response: "",
+        model,
+        latencyMs: conn.latencyMs,
+        httpStatus: conn.httpStatus,
+        error: conn.message,
+        diagnostics: conn.diagnostics,
+      };
+    }
+    try {
+      const result = await this.generate({
+        sessionId: options?.sessionId,
+        modelId: model,
+        messages: [{ role: "user", content: prompt }],
+      });
+      return {
+        success: true,
+        prompt,
+        response: result.text,
+        model: result.model,
+        latencyMs: result.latencyMs,
+        httpStatus: 200,
+        diagnostics: { ...conn.diagnostics, latencyMs: result.latencyMs },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        prompt,
+        response: "",
+        model,
+        latencyMs: conn.latencyMs,
+        httpStatus: conn.httpStatus,
+        error: message,
+        diagnostics: { ...conn.diagnostics, finalResult: "runtime_error", errorMessage: message },
+      };
+    }
   }
 
   async generate(options: GenerateOptions): Promise<GenerateResult> {
-    const apiKey = this.getApiKey();
+    const apiKey = this.resolveKey(options);
     if (!apiKey) {
-      throw new Error(`API key not configured for ${this.name}`);
+      throw new Error(
+        `Clé API manquante pour ${this.name} : configurez-la dans les paramètres ou via une variable d'environnement.`
+      );
     }
 
-    // This is a fallback implementation
-    // Real implementations should call the actual API
-    return {
-      text: `[${this.name}] This is a fallback response. Please implement the actual API call.`,
-      model: options.modelId || this.getDefaultModel(),
-      providerId: this.id,
-      providerName: this.name,
-      latencyMs: 100,
-    };
+    try {
+      const model = options.modelId || this.getDefaultModel();
+      const messages = options.systemPrompt
+        ? [{ role: "system" as const, content: options.systemPrompt }, ...options.messages]
+        : options.messages;
+      const start = Date.now();
+      const response = await fetch(`${this.getEndpoint().replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: options.temperature ?? 0.7,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        throw new Error(
+          `${this.name}: HTTP ${response.status}${errorBody ? ` — ${errorBody.slice(0, 400)}` : ""}`
+        );
+      }
+
+      const data = await response.json();
+      return {
+        text: data.choices?.[0]?.message?.content || "",
+        model,
+        providerId: this.id,
+        providerName: this.name,
+        latencyMs: Date.now() - start,
+        usage: {
+          promptTokens: data.usage?.prompt_tokens,
+          completionTokens: data.usage?.completion_tokens,
+          totalTokens: data.usage?.total_tokens,
+        },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`[${this.name}] generate a échoué : ${errorMessage}`);
+    }
   }
 
   async *stream(options: StreamOptions): AsyncIterable<StreamChunk> {
-    const apiKey = this.getApiKey();
+    const apiKey = this.resolveKey(options);
     if (!apiKey) {
-      throw new Error(`API key not configured for ${this.name}`);
+      throw new Error(
+        `Clé API manquante pour ${this.name} : configurez-la dans les paramètres ou via une variable d'environnement.`
+      );
     }
 
-    // Fallback streaming implementation
-    const chunks = [
-      `[${this.name}] `,
-      "This is a fallback streaming response. ",
-      "Please implement the actual API streaming call."
-    ];
+    const model = options.modelId || this.getDefaultModel();
+    const messages = options.systemPrompt
+      ? [{ role: "system" as const, content: options.systemPrompt }, ...options.messages]
+      : options.messages;
 
-    for (const chunk of chunks) {
-      if (options.signal?.aborted) {
-        break;
+    const response = await fetch(`${this.getEndpoint().replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: options.temperature ?? 0.7,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      throw new Error(
+        `${this.name}: HTTP ${response.status}${errorBody ? ` — ${errorBody.slice(0, 400)}` : ""}`
+      );
+    }
+    if (!response.body) {
+      throw new Error(`${this.name}: pas de corps de réponse pour le streaming.`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        if (options.signal?.aborted) break;
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data: ")) continue;
+          const payload = trimmed.slice(6).trim();
+          if (payload === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(payload);
+            const delta = parsed.choices?.[0]?.delta?.content || "";
+            if (delta) {
+              yield { delta, isComplete: false };
+            }
+          } catch {
+            // Bloc SSE partiel : ignoré
+          }
+        }
       }
-      yield {
-        delta: chunk,
-        isComplete: false,
-      };
-      await new Promise(resolve => setTimeout(resolve, 100));
+    } finally {
+      reader.releaseLock();
     }
 
-    yield {
-      delta: "",
-      isComplete: true,
-    };
+    yield { delta: "", isComplete: true };
   }
 }
 
@@ -190,9 +462,9 @@ export class GoogleProvider extends GenericAIProvider {
   }
 
   async generate(options: GenerateOptions): Promise<GenerateResult> {
-    const apiKey = this.getApiKey();
+    const apiKey = this.resolveKey(options);
     if (!apiKey) {
-      throw new Error("GOOGLE_API_KEY is not configured");
+      throw new Error("Clé API Google manquante (GOOGLE_API_KEY ou paramètres UI).");
     }
 
     try {
@@ -209,6 +481,7 @@ export class GoogleProvider extends GenericAIProvider {
         })),
         config: {
           temperature: options.temperature ?? 0.7,
+          systemInstruction: options.systemPrompt,
         },
       });
 
@@ -235,9 +508,9 @@ export class GoogleProvider extends GenericAIProvider {
   }
 
   async *stream(options: StreamOptions): AsyncIterable<StreamChunk> {
-    const apiKey = this.getApiKey();
+    const apiKey = this.resolveKey(options);
     if (!apiKey) {
-      throw new Error("GOOGLE_API_KEY is not configured");
+      throw new Error("Clé API Google manquante (GOOGLE_API_KEY ou paramètres UI).");
     }
 
     try {
@@ -253,6 +526,7 @@ export class GoogleProvider extends GenericAIProvider {
         })),
         config: {
           temperature: options.temperature ?? 0.7,
+          systemInstruction: options.systemPrompt,
         },
       });
 
@@ -324,9 +598,9 @@ export class OpenAIProvider extends GenericAIProvider {
   }
 
   async generate(options: GenerateOptions): Promise<GenerateResult> {
-    const apiKey = this.getApiKey();
+    const apiKey = this.resolveKey(options);
     if (!apiKey) {
-      throw new Error("OPENAI_API_KEY is not configured");
+      throw new Error("Clé API OpenAI manquante (OPENAI_API_KEY ou paramètres UI).");
     }
 
     try {
@@ -339,7 +613,9 @@ export class OpenAIProvider extends GenericAIProvider {
         },
         body: JSON.stringify({
           model: options.modelId || this.getDefaultModel(),
-          messages: options.messages,
+          messages: options.systemPrompt
+            ? [{ role: "system", content: options.systemPrompt }, ...options.messages]
+            : options.messages,
           temperature: options.temperature || 0.7,
         }),
       });
@@ -367,15 +643,14 @@ export class OpenAIProvider extends GenericAIProvider {
       };
     } catch (error) {
       const errorMessage = (error as Error).message;
-      console.warn(`[OpenAIProvider] Failed to generate: ${errorMessage}`);
-      return super.generate(options);
+      throw new Error(`[OpenAI] generate a échoué : ${errorMessage}`);
     }
   }
 
   async *stream(options: StreamOptions): AsyncIterable<StreamChunk> {
-    const apiKey = this.getApiKey();
+    const apiKey = this.resolveKey(options);
     if (!apiKey) {
-      throw new Error("OPENAI_API_KEY is not configured");
+      throw new Error("Clé API OpenAI manquante (OPENAI_API_KEY ou paramètres UI).");
     }
 
     try {
@@ -387,7 +662,9 @@ export class OpenAIProvider extends GenericAIProvider {
         },
         body: JSON.stringify({
           model: options.modelId || this.getDefaultModel(),
-          messages: options.messages,
+          messages: options.systemPrompt
+            ? [{ role: "system", content: options.systemPrompt }, ...options.messages]
+            : options.messages,
           temperature: options.temperature || 0.7,
           stream: true,
         }),
@@ -449,8 +726,7 @@ export class OpenAIProvider extends GenericAIProvider {
       };
     } catch (error) {
       const errorMessage = (error as Error).message;
-      console.warn(`[OpenAIProvider] Failed to stream: ${errorMessage}`);
-      yield* super.stream(options);
+      throw new Error(`[OpenAI] stream a échoué : ${errorMessage}`);
     }
   }
 }
@@ -483,9 +759,9 @@ export class AnthropicProvider extends GenericAIProvider {
   }
 
   async generate(options: GenerateOptions): Promise<GenerateResult> {
-    const apiKey = this.getApiKey();
+    const apiKey = this.resolveKey(options);
     if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY is not configured");
+      throw new Error("Clé API Anthropic manquante (ANTHROPIC_API_KEY ou paramètres UI).");
     }
 
     try {
@@ -501,6 +777,7 @@ export class AnthropicProvider extends GenericAIProvider {
           model: options.modelId || this.getDefaultModel(),
           max_tokens: 4096,
           temperature: options.temperature || 0.7,
+          system: options.systemPrompt,
           messages: options.messages,
         }),
       });
@@ -528,15 +805,14 @@ export class AnthropicProvider extends GenericAIProvider {
       };
     } catch (error) {
       const errorMessage = (error as Error).message;
-      console.warn(`[AnthropicProvider] Failed to generate: ${errorMessage}`);
-      return super.generate(options);
+      throw new Error(`[Anthropic] generate a échoué : ${errorMessage}`);
     }
   }
 
   async *stream(options: StreamOptions): AsyncIterable<StreamChunk> {
-    const apiKey = this.getApiKey();
+    const apiKey = this.resolveKey(options);
     if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY is not configured");
+      throw new Error("Clé API Anthropic manquante (ANTHROPIC_API_KEY ou paramètres UI).");
     }
 
     try {
@@ -551,6 +827,7 @@ export class AnthropicProvider extends GenericAIProvider {
           model: options.modelId || this.getDefaultModel(),
           max_tokens: 4096,
           temperature: options.temperature || 0.7,
+          system: options.systemPrompt,
           messages: options.messages,
           stream: true,
         }),
@@ -610,8 +887,7 @@ export class AnthropicProvider extends GenericAIProvider {
       };
     } catch (error) {
       const errorMessage = (error as Error).message;
-      console.warn(`[AnthropicProvider] Failed to stream: ${errorMessage}`);
-      yield* super.stream(options);
+      throw new Error(`[Anthropic] stream a échoué : ${errorMessage}`);
     }
   }
 }

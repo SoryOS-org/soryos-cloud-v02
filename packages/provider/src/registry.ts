@@ -14,6 +14,13 @@ import {
   GenericAIProvider,
 } from "./providers";
 
+export {
+  setCredentialResolver,
+  resolveLiveCredential,
+} from "./credential-bridge";
+export type { CredentialResolver, LiveCredential } from "./credential-bridge";
+import { resolveLiveCredential } from "./credential-bridge";
+
 export class AIProviderRegistry {
   private providers: Map<string, AIProvider> = new Map();
   private initialized: boolean = false;
@@ -76,7 +83,12 @@ export class AIProviderRegistry {
     return this.getRequiredProvider("google");
   }
 
-  resolveApiKey(providerId: string): string {
+  resolveApiKey(providerId: string, sessionId?: string): string {
+    const live = resolveLiveCredential(providerId, sessionId);
+    if (live?.apiKey && live.apiKey.trim()) {
+      return live.apiKey.trim();
+    }
+
     const provider = this.getProvider(providerId);
     if (provider) {
       // If provider has a getApiKey method, use it
@@ -164,13 +176,15 @@ export class AIProviderRegistry {
     const conn = await this.testConnection(providerId, options);
     const prompt = options?.prompt || "Réponds uniquement : OK";
     return {
-      success: conn.success,
+      success: false,
       prompt,
-      response: conn.success ? "OK" : "",
-      model: options?.modelId || "gemini-3.8-flash",
+      response: "",
+      model: options?.modelId || "unknown",
       latencyMs: conn.latencyMs,
       httpStatus: conn.httpStatus,
-      error: conn.success ? undefined : conn.message,
+      error: conn.success
+        ? `testAI non implémenté pour le fournisseur ${providerId}.`
+        : conn.message,
       diagnostics: conn.diagnostics,
     };
   }

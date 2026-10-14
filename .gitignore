@@ -29,3 +29,7 @@ apps/web/node_modules/
 *.tsbuildinfo
 next-env.d.ts
 dist
+
+# Reference material (external repos, ~2Go) — jamais committé
+reference-pour-ameliorer-notre-projet/
+

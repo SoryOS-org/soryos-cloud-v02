@@ -54,6 +54,19 @@ export interface SubagentDefinition {
   inputSchema: any;
   outputSchema: any;
   requiredTools: string[];
+  /** Execution mode used for permission checks while the subagent runs its own tools. */
+  mode?: string;
+  /** Max LLM/tool iterations before returning a partial result. */
+  maxToolCalls?: number;
+}
+
+export interface SubagentRunResult {
+  success: boolean;
+  output: string;
+  error?: string;
+  iterations: number;
+  toolCalls: number;
+  partial?: boolean;
 }
 
 export interface AgentDefinition {
@@ -106,6 +119,8 @@ export interface Plan {
   userRequest?: string;
   workspaceId?: string;
   projectId?: string;
+  mode?: string;
+  model?: string;
   steps: PlanStep[];
   currentStepIndex: number;
   status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
@@ -128,6 +143,8 @@ export interface PlannerConfig {
 export interface PlannerOptions {
   sessionId: string;
   userRequest: string;
+  model?: string;
+  mode?: string;
 }
 
 export interface PlanResult {

@@ -36,11 +36,19 @@ export async function POST(
       }
 
       try {
+        // executePlan pauses when agent_running is explicitly false; mark the
+        // session as running for the duration of this stream.
+        sessionStore.update(id, { agent_running: true });
         await agentRuntime.run({ sessionId: id, emit: send });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         send({ type: "error", message: msg });
       } finally {
+        const current = sessionStore.get(id);
+        if (current) {
+          current.agent_running = false;
+          sessionStore.save(current);
+        }
         try {
           controller.close();
         } catch {

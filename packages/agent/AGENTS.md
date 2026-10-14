@@ -11,12 +11,26 @@ This package houses the core autonomous **`AgentRuntime`** and agent matrix (`bu
 - Handle errors with comprehensive classification and recovery via `ErrorRecoveryManager`.
 
 ## Key Files
-- `src/index.ts`: Primary export point for `AgentRuntime`, `agentRuntime`, and agent matrix configuration.
-- `src/runtime.ts`: Core agent execution engine with multi-turn support and streaming.
-- `src/error-handler.ts`: Error classification and recovery system with 10+ error types.
+- `src/index.ts`: Primary export point for `AgentRuntime`, `agentRuntime`, and agent matrix configuration. Calls `registerTaskTool()` on import (injects the `task` tool into the global registry + executor override).
+- `src/runtime.ts`: Core agent execution engine; per-session run lock, `agent.started/completed/failed` emitted on `@soryos/bus`.
+- `src/planner.ts`: Plan → execute → feedback loop (auto-correction, pause/cancellation, honest failure persistence).
+- `src/subagents.ts`: REAL subagent system — `SUBAGENT_DEFINITIONS` (explore/plan/coder), `SubagentManager` (bounded LLM + tool loop), `registerTaskTool()` (injection into `@soryos/tool` via `ToolExecutor.registerHandler`, no dependency cycle). Emits `subagent.started/completed/failed`.
+- `src/llm-client.ts`: Single LLM entry point on `@soryos/provider` with UI credential resolution.
+- `src/prompts.ts`: Planner and feedback system prompts (includes delegation guidance for the `task` tool).
+- `src/error-handler.ts`: Error classification and recovery system with 10+ error types (`classifyError` wired in `planner.ts`).
 - `src/config.ts`: Agent configuration and matrix definitions.
 - `src/providers.ts`: AI provider abstraction.
 - `src/types.ts`: Type definitions.
+
+## Memory & Context (`src/session-compactor.ts`, `src/context-builder.ts`)
+- `SessionCompactor.maybeCompact(sessionId)`: when `messages.length > 30` (COMPACTION_THRESHOLD), the OLDER messages are summarized by the LLM into a structured `SessionData.memorySummary` (merged across compactions, capped 12k chars); the last 15 (KEEP_RECENT_MESSAGES) stay verbatim. NEVER deletes without a summary — LLM failure = messages untouched + honest error. Emits `session.compacted`. Wired at the start of `Planner.planAndExecute`; the planner prompt prepends `Earlier conversation (compacted memory)`.
+- `ContextBuilder.buildContext`: user_request + project instruction files (`AGENTS.md`, `CONVENTIONS.md`, `README.md` from the workspace root, 4k chars each) + shallow tree overview (depth 2, skips node_modules/.git/dist…, max 60 entries) + open files + active file; capped at 20 items.
+
+## Subagent System (`src/subagents.ts`)
+- `explore` (mode `explore`, read-only, 12 tool calls), `plan` (mode `plan`, read-only + webfetch, 10), `coder` (mode `build`, full, 15).
+- `SubagentManager.run()` = REAL loop: LLM replies with `{"toolCalls":[...],"final":null}` → tools executed through the real `ToolExecutor` (permissions enforced per subagent mode) → until final answer, tool-call limit (honest PARTIAL result), pause, or LLM error.
+- The `task` tool (`{subagent, prompt}`) is INJECTED from this package into `@soryos/tool` (registry + static override map) — `@soryos/tool` never imports `@soryos/agent` (no cycle). Denied in plan/explore/code-reviewer modes by default permissions.
+- Bus events: `subagent.started`, `subagent.completed`, `subagent.failed`.
 
 ## Agent Guidelines
 - Never bypass `@soryos/permissions`.

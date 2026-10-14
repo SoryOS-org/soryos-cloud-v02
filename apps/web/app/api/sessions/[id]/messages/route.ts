@@ -63,15 +63,17 @@ export async function POST(
         const msg = err instanceof Error ? err.message : String(err);
         send({ type: "error", message: msg });
       } finally {
-        // The runtime already stores the streamed assistant reply; only add one
-        // when nothing was stored, and attach provider errors so they stay visible.
-        const stored = session.messages.slice(startIndex).filter((m) => m.role === "assistant");
+        // The planner may have replaced the stored session object via
+        // sessionStore.update(); always finish on the fresh reference so we
+        // never clobber its assistant message, todos or model selection.
+        const current = sessionStore.get(id) ?? session;
+        const stored = current.messages.slice(startIndex).filter((m) => m.role === "assistant");
         const last = stored[stored.length - 1];
         if (last) {
           if (assistantText.trim().length > last.content.length) last.content = assistantText.trim();
           if (errorText) last.content = `${last.content}${errorText}`.trim();
         } else {
-          session.messages.push({
+          current.messages.push({
             id: `assistant-${Date.now()}`,
             role: "assistant",
             content:
@@ -79,8 +81,8 @@ export async function POST(
             created_at: now(),
           });
         }
-        session.agent_running = false;
-        sessionStore.save(session);
+        current.agent_running = false;
+        sessionStore.save(current);
         try {
           controller.close();
         } catch {

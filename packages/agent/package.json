@@ -9,6 +9,7 @@
     "@google/genai": "^2.26.0",
     "@soryos/bus": "*",
     "@soryos/core": "*",
+    "@soryos/credentials": "*",
     "@soryos/execution": "*",
     "@soryos/filesystem": "*",
     "@soryos/git": "*",
@@ -21,5 +22,11 @@
     "@soryos/tool": "*",
     "@soryos/voice": "*",
     "@soryos/workspace": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  },
+  "scripts": {
+    "test:engine": "vitest run"
   }
 }

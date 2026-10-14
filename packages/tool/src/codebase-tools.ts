@@ -51,12 +51,7 @@ export interface CodebaseToolResult {
   success: boolean;
   results?: any[];
   error?: string;
-  metadata?: {
-    query?: string;
-    count?: number;
-    filesScanned?: number;
-    durationMs?: number;
-  };
+  metadata?: Record<string, any>;
   verified?: boolean;
 }
 

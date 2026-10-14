@@ -419,7 +419,7 @@ TERMINATED (manual stop or error)
 # Typecheck all workspaces with 0 errors
 npm run typecheck
 
-# Run full 10/10 engine verification suite
+# Run engine verification suite (5 packages: permissions, provider, tool, execution, agent — 85 tests)
 npm run test:engine
 
 # Production build
