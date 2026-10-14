@@ -132,7 +132,15 @@ export class Planner {
     await this.compactor.maybeCompact(session.id);
 
     emit({ type: 'status', message: 'Analyse de la demande…' });
-    const planResult = await this.createPlan({ sessionId: session.id, userRequest, model, mode });
+    const planResult = await this.createPlan({
+      sessionId: session.id,
+      userRequest,
+      model,
+      mode,
+      ...(lastMessage.images && lastMessage.images.length > 0
+        ? { userImages: lastMessage.images }
+        : {}),
+    });
 
     if (!planResult.success || !planResult.plan) {
       const errorMessage = `Failed to create plan: ${planResult.error}`;
@@ -207,6 +215,7 @@ export class Planner {
         systemPrompt: systemPrompt,
         model: model || sessionStore.get(sessionId)?.model || 'claude-3-5-sonnet',
         sessionId,
+        ...(options.userImages && options.userImages.length > 0 ? { images: options.userImages } : {}),
       });
 
       if (modelResponse.error) {
@@ -407,11 +416,14 @@ export class Planner {
       `Execution results:\n${resultsBlock}\n\n` +
       `Review the results and respond with the JSON object only.`;
 
+    const freshHistory = sessionStore.get(sessionId)?.messages ?? [];
+    const lastUser = [...freshHistory].reverse().find((m) => m.role === 'user');
     const res = await this.llmClient.generate({
       prompt,
       systemPrompt: FEEDBACK_SYSTEM_PROMPT,
       model: plan.model || sessionStore.get(sessionId)?.model || 'claude-3-5-sonnet',
       sessionId,
+      ...(lastUser?.images && lastUser.images.length > 0 ? { images: lastUser.images } : {}),
     });
 
     if (res.error) {

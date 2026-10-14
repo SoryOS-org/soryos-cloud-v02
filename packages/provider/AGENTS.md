@@ -13,6 +13,7 @@ This package manages multi-model AI providers and credential resolution.
 - Provide `AIProviderRegistry` (`aiProviderRegistry`).
 - Resolve API keys from environment or session overrides.
 - Provide model metadata via `SUPPORTED_AI_MODELS`.
+- **Multimodal input**: `ChatMessage.images` (base64, no data: prefix) mapped per provider — Gemini `inlineData` parts (`buildGoogleContents`), OpenAI/Generic `image_url` data-URI parts (`buildOpenAIMessages`), Anthropic base64 image blocks (`buildAnthropicMessages`). Pure builders in `helpers.ts`, unit-tested; never silently drop images (unsupported backends surface the API error honestly).
 
 ## Agent Guidelines
 - Never hardcode API keys in source files.

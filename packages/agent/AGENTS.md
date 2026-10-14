@@ -13,9 +13,8 @@ This package houses the core autonomous **`AgentRuntime`** and agent matrix (`bu
 ## Key Files
 - `src/index.ts`: Primary export point for `AgentRuntime`, `agentRuntime`, and agent matrix configuration. Calls `registerTaskTool()` on import (injects the `task` tool into the global registry + executor override).
 - `src/runtime.ts`: Core agent execution engine; per-session run lock, `agent.started/completed/failed` emitted on `@soryos/bus`.
-- `src/planner.ts`: Plan → execute → feedback loop (auto-correction, pause/cancellation, honest failure persistence).
-- `src/subagents.ts`: REAL subagent system — `SUBAGENT_DEFINITIONS` (explore/plan/coder), `SubagentManager` (bounded LLM + tool loop), `registerTaskTool()` (injection into `@soryos/tool` via `ToolExecutor.registerHandler`, no dependency cycle). Emits `subagent.started/completed/failed`.
-- `src/llm-client.ts`: Single LLM entry point on `@soryos/provider` with UI credential resolution.
+- `src/planner.ts`: Plan → execute → feedback loop (auto-correction, pause/cancellation, honest failure persistence). Passes the triggering user message's `images` (vision input) to the LLM in `createPlan` and in the feedback re-prompt.
+- `src/llm-client.ts`: Single LLM entry point on `@soryos/provider` with UI credential resolution. `generate/streamChat` accept optional `images` (base64 attachments) threaded onto the user message for multimodal providers.
 - `src/prompts.ts`: Planner and feedback system prompts (includes delegation guidance for the `task` tool).
 - `src/error-handler.ts`: Error classification and recovery system with 10+ error types (`classifyError` wired in `planner.ts`).
 - `src/config.ts`: Agent configuration and matrix definitions.

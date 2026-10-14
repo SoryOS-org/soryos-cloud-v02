@@ -87,6 +87,8 @@ export interface ProviderAITestResult {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  /** Vision input: base64 raw data (no data: prefix), provider-mapped. */
+  images?: Array<{ mimeType: string; data: string }>;
 }
 
 export interface GenerateOptions {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sessionStore } from "@soryos/session";
 import { agentRuntime } from "@soryos/agent";
-import type { SessionData } from "@soryos/schema";
+import { validateChatImages, type ChatImageAttachment, type SessionData } from "@soryos/schema";
 
 /**
  * Envoie un message à une session et démarre l'agent.
@@ -29,6 +29,15 @@ export async function POST(
     return NextResponse.json({ error: "Message content required" }, { status: 400 });
   }
 
+  let images: ChatImageAttachment[] | undefined;
+  if (body.images !== undefined) {
+    const imageError = validateChatImages(body.images);
+    if (imageError) {
+      return NextResponse.json({ error: `Invalid images: ${imageError}` }, { status: 400 });
+    }
+    images = body.images as ChatImageAttachment[];
+  }
+
   // Crée un stream SSE qui délègue à @soryos/agent
   const encoder = new TextEncoder();
   
@@ -36,7 +45,13 @@ export async function POST(
     async start(controller) {
       let assistantText = "";
       const now = () => new Date().toISOString();
-      session.messages.push({ id: `user-${Date.now()}`, role: "user", content, created_at: now() });
+      session.messages.push({
+        id: `user-${Date.now()}`,
+        role: "user",
+        content,
+        ...(images && images.length > 0 ? { images } : {}),
+        created_at: now(),
+      });
       const startIndex = session.messages.length;
       let errorText = "";
       session.agent_running = true;

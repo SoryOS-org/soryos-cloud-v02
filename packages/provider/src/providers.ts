@@ -6,6 +6,7 @@
 import { AIProvider, ModelInfo, GenerateOptions, GenerateResult, StreamOptions, StreamChunk, ResolvedCredential, ProviderConnectionTestResult, ProviderAITestResult } from "./types";
 import { SUPPORTED_AI_MODELS } from "./models";
 import { resolveLiveCredential } from "./credential-bridge";
+import { buildGoogleContents, buildOpenAIMessages, buildAnthropicMessages } from "./helpers";
 
 async function probeEndpoint(
   providerId: string,
@@ -318,9 +319,11 @@ export class GenericAIProvider implements AIProvider {
 
     try {
       const model = options.modelId || this.getDefaultModel();
-      const messages = options.systemPrompt
-        ? [{ role: "system" as const, content: options.systemPrompt }, ...options.messages]
-        : options.messages;
+      const messages = buildOpenAIMessages(
+        options.systemPrompt
+          ? [{ role: "system" as const, content: options.systemPrompt }, ...options.messages]
+          : options.messages
+      );
       const start = Date.now();
       const response = await fetch(`${this.getEndpoint().replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
@@ -370,9 +373,11 @@ export class GenericAIProvider implements AIProvider {
     }
 
     const model = options.modelId || this.getDefaultModel();
-    const messages = options.systemPrompt
-      ? [{ role: "system" as const, content: options.systemPrompt }, ...options.messages]
-      : options.messages;
+    const messages = buildOpenAIMessages(
+      options.systemPrompt
+        ? [{ role: "system" as const, content: options.systemPrompt }, ...options.messages]
+        : options.messages
+    );
 
     const response = await fetch(`${this.getEndpoint().replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
@@ -475,10 +480,7 @@ export class GoogleProvider extends GenericAIProvider {
       const start = Date.now();
       const result = await genAI.models.generateContent({
         model: options.modelId || this.getDefaultModel(),
-        contents: options.messages.map(msg => ({
-          role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }],
-        })),
+        contents: buildGoogleContents(options.messages),
         config: {
           temperature: options.temperature ?? 0.7,
           systemInstruction: options.systemPrompt,
@@ -520,10 +522,7 @@ export class GoogleProvider extends GenericAIProvider {
       const start = Date.now();
       const stream = await genAI.models.generateContentStream({
         model: options.modelId || this.getDefaultModel(),
-        contents: options.messages.map(msg => ({
-          role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }],
-        })),
+        contents: buildGoogleContents(options.messages),
         config: {
           temperature: options.temperature ?? 0.7,
           systemInstruction: options.systemPrompt,
@@ -613,9 +612,11 @@ export class OpenAIProvider extends GenericAIProvider {
         },
         body: JSON.stringify({
           model: options.modelId || this.getDefaultModel(),
-          messages: options.systemPrompt
-            ? [{ role: "system", content: options.systemPrompt }, ...options.messages]
-            : options.messages,
+          messages: buildOpenAIMessages(
+            options.systemPrompt
+              ? [{ role: "system", content: options.systemPrompt }, ...options.messages]
+              : options.messages
+          ),
           temperature: options.temperature || 0.7,
         }),
       });
@@ -662,9 +663,11 @@ export class OpenAIProvider extends GenericAIProvider {
         },
         body: JSON.stringify({
           model: options.modelId || this.getDefaultModel(),
-          messages: options.systemPrompt
-            ? [{ role: "system", content: options.systemPrompt }, ...options.messages]
-            : options.messages,
+          messages: buildOpenAIMessages(
+            options.systemPrompt
+              ? [{ role: "system", content: options.systemPrompt }, ...options.messages]
+              : options.messages
+          ),
           temperature: options.temperature || 0.7,
           stream: true,
         }),
@@ -778,7 +781,7 @@ export class AnthropicProvider extends GenericAIProvider {
           max_tokens: 4096,
           temperature: options.temperature || 0.7,
           system: options.systemPrompt,
-          messages: options.messages,
+          messages: buildAnthropicMessages(options.messages),
         }),
       });
 
@@ -828,7 +831,7 @@ export class AnthropicProvider extends GenericAIProvider {
           max_tokens: 4096,
           temperature: options.temperature || 0.7,
           system: options.systemPrompt,
-          messages: options.messages,
+          messages: buildAnthropicMessages(options.messages),
           stream: true,
         }),
       });

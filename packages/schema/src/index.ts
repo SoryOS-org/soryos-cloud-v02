@@ -109,6 +109,50 @@ export interface ChatMessage {
   content: string;
   blocks?: MessageBlock[];
   created_at?: string;
+  /** Image attachments (vision input); base64 raw data, no data: prefix. */
+  images?: ChatImageAttachment[];
+}
+
+export interface ChatImageAttachment {
+  mimeType: string;
+  /** Raw base64 (no `data:` prefix). Capped by MAX_IMAGE_ATTACHMENT_BYTES. */
+  data: string;
+}
+
+export const ALLOWED_IMAGE_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
+
+/** Per-image cap (~3 MB base64 ≈ 2.25 MB binary). */
+export const MAX_IMAGE_ATTACHMENT_BYTES = 3_000_000;
+
+/**
+ * Validates image attachments at the boundary that owns them (chat route).
+ * Returns a human-readable error, or null when valid.
+ */
+export function validateChatImages(images: unknown): string | null {
+  if (!Array.isArray(images)) return "images must be an array";
+  if (images.length > 4) return "At most 4 image attachments are allowed";
+  for (const image of images) {
+    if (!image || typeof image !== "object") return "Each image must be an object {mimeType, data}";
+    const { mimeType, data } = image as { mimeType?: unknown; data?: unknown };
+    if (typeof mimeType !== "string" || !(ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(mimeType)) {
+      return `Unsupported image mimeType "${String(mimeType)}" (allowed: ${ALLOWED_IMAGE_MIME_TYPES.join(", ")})`;
+    }
+    if (typeof data !== "string" || data.length === 0) {
+      return "Each image must include non-empty base64 data";
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
+      return "Image data is not valid base64";
+    }
+    if (data.length > MAX_IMAGE_ATTACHMENT_BYTES) {
+      return `Image too large (${data.length} base64 chars, max ${MAX_IMAGE_ATTACHMENT_BYTES})`;
+    }
+  }
+  return null;
 }
 
 export interface SessionError {

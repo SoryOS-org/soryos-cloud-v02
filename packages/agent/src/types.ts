@@ -148,6 +148,8 @@ export interface PlannerOptions {
   userRequest: string;
   model?: string;
   mode?: string;
+  /** Vision input from the triggering user message (multimodal planning). */
+  userImages?: Array<{ mimeType: string; data: string }>;
 }
 
 export interface PlanResult {

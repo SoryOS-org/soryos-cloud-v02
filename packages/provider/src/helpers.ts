@@ -95,3 +95,82 @@ export async function parseResponseError(
     endpoint,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Multimodal message mapping (text + image attachments → provider wire format)
+// ---------------------------------------------------------------------------
+
+type ProviderChatMessage = ChatMessage;
+
+/**
+ * Google Gemini wire format: contents[] of {role, parts[]} where image parts
+ * are {inlineData: {mimeType, data}}.
+ */
+export function buildGoogleContents(messages: ProviderChatMessage[]): Array<{
+  role: "user" | "model";
+  parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }>;
+}> {
+  return messages.map((msg) => ({
+    role: msg.role === "assistant" ? ("model" as const) : ("user" as const),
+    parts: [
+      { text: msg.content },
+      ...(msg.images ?? []).map((img) => ({
+        inlineData: { mimeType: img.mimeType, data: img.data },
+      })),
+    ],
+  }));
+}
+
+/**
+ * OpenAI wire format: content is a string when text-only, or an array of
+ * {type:"text"} / {type:"image_url"} parts when images are attached.
+ */
+export function buildOpenAIMessages(
+  messages: ProviderChatMessage[]
+): Array<{ role: string; content: unknown }> {
+  return messages.map((msg) => {
+    const images = msg.images ?? [];
+    if (images.length === 0) return { role: msg.role, content: msg.content };
+    return {
+      role: msg.role,
+      content: [
+        { type: "text", text: msg.content },
+        ...images.map((img) => ({
+          type: "image_url",
+          image_url: { url: `data:${img.mimeType};base64,${img.data}` },
+        })),
+      ],
+    };
+  });
+}
+
+/**
+ * Anthropic wire format: content is a string when text-only, or an array of
+ * {type:"text"} / {type:"image"} (base64 source) blocks when attached.
+ */
+export function buildAnthropicMessages(
+  messages: ProviderChatMessage[]
+): Array<{ role: string; content: unknown }> {
+  return messages.map((msg) => {
+    const images = msg.images ?? [];
+    if (images.length === 0) return { role: msg.role, content: msg.content };
+    return {
+      role: msg.role,
+      content: [
+        { type: "text", text: msg.content },
+        ...images.map((img) => ({
+          type: "image",
+          source: { type: "base64", media_type: img.mimeType, data: img.data },
+        })),
+      ],
+    };
+  });
+}
+
+/** Honest text-only fallback note when a provider cannot receive images. */
+export function describeDroppedImages(messages: ProviderChatMessage[]): string {
+  const count = messages.reduce((sum, msg) => sum + (msg.images?.length ?? 0), 0);
+  return count > 0
+    ? `\n\n[${count} image attachment(s) were provided but this provider does not support image input]`
+    : "";
+}

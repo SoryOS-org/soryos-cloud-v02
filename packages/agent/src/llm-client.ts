@@ -1,6 +1,12 @@
 import { aiProviderRegistry, type AIProvider } from '@soryos/provider';
 import '@soryos/credentials';
 
+export interface LlmClientImage {
+  mimeType: string;
+  /** Raw base64 (no data: prefix). */
+  data: string;
+}
+
 export interface LlmClient {
   generate(options: {
     prompt: string;
@@ -8,6 +14,8 @@ export interface LlmClient {
     model?: string;
     sessionId?: string;
     temperature?: number;
+    /** Vision input attached to the user message (multimodal providers). */
+    images?: LlmClientImage[];
   }): Promise<{ text: string; error?: string }>;
   streamChat(options: {
     prompt: string;
@@ -15,6 +23,7 @@ export interface LlmClient {
     model?: string;
     sessionId?: string;
     temperature?: number;
+    images?: LlmClientImage[];
   }): AsyncGenerator<{ text: string; error?: string }>;
 }
 
@@ -56,6 +65,7 @@ class DefaultLlmClient implements LlmClient {
     model?: string;
     sessionId?: string;
     temperature?: number;
+    images?: LlmClientImage[];
   }): Promise<{ text: string; error?: string }> {
     try {
       const model = options.model || 'claude-3-5-sonnet';
@@ -65,7 +75,13 @@ class DefaultLlmClient implements LlmClient {
         modelId: model,
         systemPrompt: options.systemPrompt,
         temperature: options.temperature,
-        messages: [{ role: 'user', content: options.prompt }],
+        messages: [
+          {
+            role: 'user',
+            content: options.prompt,
+            ...(options.images && options.images.length > 0 ? { images: options.images } : {}),
+          },
+        ],
       });
       if (!result.text) {
         return { text: '', error: `${provider.name} a répondu avec un contenu vide.` };
@@ -82,6 +98,7 @@ class DefaultLlmClient implements LlmClient {
     model?: string;
     sessionId?: string;
     temperature?: number;
+    images?: LlmClientImage[];
   }): AsyncGenerator<{ text: string; error?: string }> {
     try {
       const model = options.model || 'claude-3-5-sonnet';
@@ -91,7 +108,13 @@ class DefaultLlmClient implements LlmClient {
         modelId: model,
         systemPrompt: options.systemPrompt,
         temperature: options.temperature,
-        messages: [{ role: 'user', content: options.prompt }],
+        messages: [
+          {
+            role: 'user',
+            content: options.prompt,
+            ...(options.images && options.images.length > 0 ? { images: options.images } : {}),
+          },
+        ],
       });
       for await (const chunk of stream) {
         if (chunk.delta) {
