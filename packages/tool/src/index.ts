@@ -37,8 +37,10 @@ export { mcpManager, mcpToolName } from "./mcp-manager";
 export { WorktreeTools } from "./worktree-tools";
 export type { WorktreeResult, WorktreeInfo } from "./worktree-tools";
 export { CodemodeTools, DEFAULT_CODEMODE_TIMEOUT_MS, MAX_CODEMODE_TIMEOUT_MS } from "./codemode-tools";
-export type { CodemodeResult } from "./codemode-tools";
 
+export { LRUCache } from "./cache";
+
+export type { CodemodeResult } from "./codemode-tools";
 export type ToolArgs = Record<string, any>;
 
 const ALIASES: Record<string, Record<string, string[]>> = {

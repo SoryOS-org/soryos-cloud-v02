@@ -12,6 +12,7 @@
     "@soryos/execution": "*",
     "@soryos/permissions": "*",
     "@soryos/schema": "*",
+    "uuid": "^9.0.0",
     "@soryos/session": "*"
   },
   "devDependencies": {
