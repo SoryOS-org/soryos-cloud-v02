@@ -9,7 +9,7 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - Delegate execution to the active `ExecutionProvider`.
 - Enforce the invariant: *"NO REAL ACTION = NO SUCCESS"*. Every tool MUST perform physical disk/shell actions and verify results.
 
-## Registered Tools (22 + dynamic MCP)
+## Registered Tools (23 + dynamic MCP)
 - `read_file`: Reads file content with 1-based line numbers.
 - `write_file`: Overwrites/creates pristine files on disk.
 - `edit_file`: Multi-tier matching (see below).
@@ -20,6 +20,7 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - `list_files`: Recursively lists directories and files.
 - `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`: Git operations.
 - `git_worktree_create`, `git_worktree_list`, `git_worktree_remove`: Isolated git worktrees (see below).
+- `codemode`: Executes a JS program chaining many tool calls in one step (see below).
 - `codebase_search`: Semantic search over the codebase.
 - `todo_write` & `todo_read`: Manages task roadmaps.
 - `webfetch`: Fetches an http(s) URL and returns status, headers and body (HTML → text).
@@ -48,6 +49,9 @@ ALIASES kept: `old_string`/`new_string`/`replace_all` (planner prompt compatibil
 
 ## Interactive "Ask" Gate (`ToolExecutor.askGateDangerousTool`)
 For `DANGEROUS_TOOLS` (`shell_command`, `delete_file`, `git_commit`) in build mode, when `SessionData.confirmDangerous === true` and no persistent grant exists, the executor emits `permission.requested` and waits on `createPermissionRequest()` (30s timeout → deny-once). Decisions `allow-always`/`deny-always` persist in `SessionData.permissionGrants`. Default (confirmDangerous off) = full autonomous access per AGENTS.md. Depends on `@soryos/session` (cycle-safe) for grant persistence.
+
+## Codemode (`src/codemode-tools.ts`)
+Port of OpenCode's codemode: the model writes ONE JavaScript program that chains many tool calls in a single step. Executed in a restricted `node:vm` context (`codeGeneration` disabled) exposing ONLY `tools` (Proxy → real `ToolExecutor.execute` per call, permissions/ask-gate enforced per mode) and a `console` capture — no require/process/fs/fetch. Script runs as an async IIFE; sync prefix bounded by vm timeout (≤5s), async remainder by wall-clock race (default 30s, max 120s, honest timeout message noting in-flight side effects already happened). Final expression/return value = tool output (strings, JSON for objects, logs when undefined). `HandlerContext` carries `mode` + `executor` for dispatch. Denied in plan/explore (not read-only). Planner prompt guides codemode for deterministic multi-step sequences.
 
 ## Git Worktrees (`src/worktree-tools.ts`)
 `WorktreeTools` runs REAL `git worktree add/list/remove --porcelain` through the ExecutionProvider shell. Worktrees live under `<repoRoot>/.soryos-worktrees/<name>` on branch `soryos/<name>` (gitignored). Names are sanitized (no path traversal, `/` stripped); branch names may contain `/` but never `..`. Create verifies the directory + `.git` link physically (`verified: true`). Registry tools: `git_worktree_create`, `git_worktree_list`, `git_worktree_remove` (category `git`, denied in plan/explore). Used by `@soryos/agent` for subagent isolation (`task {isolate:true}`) — the worktree is KEPT and reported, never silently discarded.

@@ -204,7 +204,7 @@ describe("ToolExecutor — dispatch réel sur disque", () => {
     expect(String(r.output)).toMatch(/traversal|outside workspace/i);
   });
 
-  it("registry : les 22 outils snake_case sont enregistrés", () => {
+  it("registry : les 23 outils snake_case sont enregistrés", () => {
     const names = toolRegistry.getToolDefinitions().map((t) => t.name).sort();
     for (const expected of [
       "read_file", "write_file", "edit_file", "delete_file", "list_files",
@@ -212,9 +212,10 @@ describe("ToolExecutor — dispatch réel sur disque", () => {
       "git_log", "git_add", "git_commit", "codebase_search", "todo_write", "todo_read",
       "webfetch", "patch_file", "question",
       "git_worktree_create", "git_worktree_list", "git_worktree_remove",
+      "codemode",
     ]) {
       expect(names).toContain(expected);
     }
-    expect(names.length).toBe(22);
+    expect(names.length).toBe(23);
   });
 });

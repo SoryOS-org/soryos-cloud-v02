@@ -15,6 +15,7 @@ import { CodebaseTools } from "./codebase-tools";
 import { WebFetchTool } from "./web-tools";
 import { PatchTools } from "./patch-tools";
 import { WorktreeTools } from "./worktree-tools";
+import { CodemodeTools, DEFAULT_CODEMODE_TIMEOUT_MS } from "./codemode-tools";
 import {
   createQuestionRequest,
   resolveQuestionRequest,
@@ -35,6 +36,8 @@ export type { McpToolInfo, McpCallToolResult } from "./mcp-client";
 export { mcpManager, mcpToolName } from "./mcp-manager";
 export { WorktreeTools } from "./worktree-tools";
 export type { WorktreeResult, WorktreeInfo } from "./worktree-tools";
+export { CodemodeTools, DEFAULT_CODEMODE_TIMEOUT_MS, MAX_CODEMODE_TIMEOUT_MS } from "./codemode-tools";
+export type { CodemodeResult } from "./codemode-tools";
 
 export type ToolArgs = Record<string, any>;
 
@@ -294,6 +297,21 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    id: "codemode",
+    name: "codemode",
+    description:
+      "Executes a JavaScript program that chains MANY tool calls in one step. Inside the script use `await tools.<tool_name>({...})` (returns {output, isError, metadata}) and console.log; the script's final expression/return value becomes the result. Prefer codemode over several separate tool steps when the task is a deterministic multi-step sequence.",
+    category: "agent",
+    parameters: {
+      type: "object",
+      properties: {
+        script: { type: "string", description: "JavaScript program body (async allowed). Only tools/console are available — no require, process, fs or network." },
+        timeoutMs: { type: "number", description: `Wall-clock timeout (default ${DEFAULT_CODEMODE_TIMEOUT_MS}ms, max 120000ms)` },
+      },
+      required: ["script"],
+    },
+  },
+  {
     id: "codebase_search",
     name: "codebase_search",
     description: "Searches the codebase for code related to a natural-language query and returns matching files.",
@@ -431,6 +449,10 @@ export interface ToolBundle {
 export interface HandlerContext {
   provider: ExecutionProvider;
   session: SessionData;
+  /** Active agent mode (build/plan/explore/…) — enforced on dispatched calls. */
+  mode: string;
+  /** The live executor, so meta-tools (codemode) dispatch through the real pipeline. */
+  executor: ToolExecutor;
   fs: FilesystemTools;
   shell: ShellTools;
   git: GitTools;
@@ -694,6 +716,21 @@ const HANDLERS: Record<string, ToolHandler> = {
     const r = await ctx.worktree.removeWorktree(path, force);
     return fromGit("git_worktree_remove", r);
   },
+  codemode: async (args, ctx) => {
+    const script = asString(requireValue(args, "codemode", "script"), "script");
+    const timeoutMs =
+      asOptionalNumber(pick(args, "codemode", "timeoutMs"), "timeoutMs") ?? DEFAULT_CODEMODE_TIMEOUT_MS;
+    const codemode = new CodemodeTools((toolName, toolArgs) =>
+      ctx.executor.execute(toolName, toolArgs, ctx.provider, ctx.session, ctx.mode)
+    );
+    const r = await codemode.runScript(script, timeoutMs);
+    return {
+      toolName: "codemode",
+      output: r.success ? r.output : r.error ?? "Codemode failed without an error message.",
+      isError: !r.success,
+      metadata: { toolCalls: r.toolCalls, logs: r.logs.length },
+    };
+  },
   codebase_search: async (args, ctx) => {
     const query = asString(requireValue(args, "codebase_search", "query"), "query");
     const path = asString(pick(args, "codebase_search", "path") ?? "", "path");
@@ -878,7 +915,13 @@ export class ToolExecutor {
 
     try {
       const bundle = this.getBundle(executionProvider);
-      return await handler(toolArgs, { provider: executionProvider, session, ...bundle });
+      return await handler(toolArgs, {
+        provider: executionProvider,
+        session,
+        mode,
+        executor: this,
+        ...bundle,
+      });
     } catch (error) {
       if (error instanceof ToolInputError) {
         return { toolName, output: error.message, isError: true };

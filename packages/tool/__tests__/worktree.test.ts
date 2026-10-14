@@ -149,10 +149,10 @@ describe("git_worktree_* via ToolExecutor", () => {
     expect(r.output).toContain('Missing required parameter "path"');
   });
 
-  it("les trois outils sont enregistrés au registre (22 built-ins)", () => {
+  it("les trois outils sont enregistrés au registre (23 built-ins)", () => {
     expect(toolRegistry.has("git_worktree_create")).toBe(true);
     expect(toolRegistry.has("git_worktree_list")).toBe(true);
     expect(toolRegistry.has("git_worktree_remove")).toBe(true);
-    expect(toolRegistry.getToolDefinitions().length).toBe(22);
+    expect(toolRegistry.getToolDefinitions().length).toBe(23);
   });
 });
