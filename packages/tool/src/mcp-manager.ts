@@ -6,7 +6,7 @@
  */
 import type { McpServerConfig, McpServerStatus, SessionData, ToolDefinition, ToolExecutionResult } from "@soryos/schema";
 import { globalEventBus } from "@soryos/bus";
-import { McpConnection, McpConnectError } from "./mcp-client";
+import { McpConnection, McpConnectError, McpListResourcesResult, McpResourceContent } from "./mcp-client";
 import { ToolExecutor, toolRegistry } from "./index";
 
 /** Registry-safe name for an MCP tool: mcp_<server>__<tool>, sanitized. */
@@ -188,6 +188,39 @@ class McpManager {
 
   isConnected(server: string): boolean {
     return this.servers.get(server)?.status.state === "connected";
+  }
+
+  /** Lists resources from a specific connected server. */
+  async listServerResources(server: string): Promise<McpListResourcesResult> {
+    const entry = this.servers.get(server);
+    if (!entry || !entry.connection) {
+      throw new McpConnectError(server, `MCP server "${server}" is not connected`);
+    }
+    return entry.connection.listResources();
+  }
+
+  /** Lists resources from all connected servers. */
+  async listAllResources(): Promise<Map<string, McpListResourcesResult>> {
+    const results = new Map<string, McpListResourcesResult>();
+    for (const [server, entry] of this.servers) {
+      if (entry.connection && entry.status.state === "connected") {
+        try {
+          results.set(server, await entry.connection.listResources());
+        } catch {
+          // Server doesn't support resources or failed; skip silently
+        }
+      }
+    }
+    return results;
+  }
+
+  /** Reads a resource from a specific server. */
+  async readServerResource(server: string, uri: string): Promise<McpResourceContent[]> {
+    const entry = this.servers.get(server);
+    if (!entry || !entry.connection) {
+      throw new McpConnectError(server, `MCP server "${server}" is not connected`);
+    }
+    return entry.connection.readResource(uri);
   }
 
   /** Test hook: clears all connections without graceful close. */

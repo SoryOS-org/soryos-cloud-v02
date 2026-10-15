@@ -19,6 +19,32 @@ export interface McpToolInfo {
   outputSchema?: Record<string, unknown>;
 }
 
+export interface McpResourceInfo {
+  uri: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface McpResourceTemplateInfo {
+  uriTemplate: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface McpResourceContent {
+  uri: string;
+  mimeType?: string;
+  text?: string;
+  blob?: string;
+}
+
+export interface McpListResourcesResult {
+  resources: McpResourceInfo[];
+  templates: McpResourceTemplateInfo[];
+}
+
 export interface McpCallToolResult {
   isError: boolean;
   /** All text parts joined with newlines; media parts are described, not inlined. */
@@ -134,6 +160,56 @@ export class McpConnection {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new McpConnectError(this.server, `Failed to list tools of "${this.server}": ${message}`);
+    }
+  }
+
+  async listResources(): Promise<McpListResourcesResult> {
+    try {
+      const [resourcesResult, templatesResult] = await Promise.all([
+        this.client.listResources(undefined, { timeout: DEFAULT_MCP_STARTUP_TIMEOUT_MS }).catch(() => ({ resources: [] })),
+        this.client.listResourceTemplates(undefined, { timeout: DEFAULT_MCP_STARTUP_TIMEOUT_MS }).catch(() => ({ resourceTemplates: [] })),
+      ]);
+
+      const resources: McpResourceInfo[] = (resourcesResult.resources ?? []).map((r) => ({
+        uri: r.uri,
+        name: r.name,
+        description: r.description,
+        mimeType: r.mimeType,
+      }));
+
+      const templates: McpResourceTemplateInfo[] = (templatesResult.resourceTemplates ?? []).map((t) => ({
+        uriTemplate: t.uriTemplate,
+        name: t.name,
+        description: t.description,
+        mimeType: t.mimeType,
+      }));
+
+      return { resources, templates };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new McpConnectError(this.server, `Failed to list resources of "${this.server}": ${message}`);
+    }
+  }
+
+  async readResource(uri: string): Promise<McpResourceContent[]> {
+    try {
+      const result = await this.client.readResource(
+        { uri },
+        { timeout: this.executionTimeoutMs }
+      );
+
+      return (result.contents ?? []).map((content) => {
+        const c = content as { uri: string; mimeType?: string; text?: string; blob?: string };
+        return {
+          uri: c.uri,
+          mimeType: c.mimeType,
+          text: c.text,
+          blob: c.blob,
+        };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new McpConnectError(this.server, `Failed to read resource "${uri}" on "${this.server}": ${message}`);
     }
   }
 

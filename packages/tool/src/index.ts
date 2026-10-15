@@ -16,6 +16,7 @@ import { WebFetchTool } from "./web-tools";
 import { WebSearchTool } from "./websearch-tools";
 import { FileDiffTool } from "./file-diff-tools";
 import { SkillTool } from "./skill-tools";
+import { McpResourceTools } from "./mcp-resource-tools";
 import { PatchTools } from "./patch-tools";
 import { WorktreeTools } from "./worktree-tools";
 import { CodemodeTools, DEFAULT_CODEMODE_TIMEOUT_MS } from "./codemode-tools";
@@ -48,6 +49,9 @@ export { FileDiffTool, computeFileDiff } from "./file-diff-tools";
 export type { FileDiffResult, FileDiffInfo } from "./file-diff-tools";
 export { SkillTool, BUILTIN_SKILLS, getSkillDefinition, listSkills, searchSkills } from "./skill-tools";
 export type { SkillDefinition, SkillLoadResult } from "./skill-tools";
+export { McpResourceTools } from "./mcp-resource-tools";
+export type { McpResourceResult } from "./mcp-resource-tools";
+export type { McpResourceInfo, McpResourceTemplateInfo, McpResourceContent, McpListResourcesResult } from "./mcp-client";
 
 export type { CodemodeResult } from "./codemode-tools";
 export type ToolArgs = Record<string, any>;
@@ -75,6 +79,8 @@ const ALIASES: Record<string, Record<string, string[]>> = {
   websearch: { query: ["q", "search", "searchQuery"] },
   file_diff: { file: ["path", "filename"], before: ["oldContent", "original"], after: ["newContent", "updated"] },
   skill: { id: ["skillId", "skill"] },
+  list_mcp_resources: { server: ["serverName", "mcpServer"] },
+  read_mcp_resource: { server: ["serverName", "mcpServer"], uri: ["resourceUri", "resource"] },
   patch_file: { patch: ["patchText", "patch_text", "diff", "patchTextContent"] },
   question: { questions: ["prompts", "asks"] },
 };
@@ -431,6 +437,35 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    id: "list_mcp_resources",
+    name: "list_mcp_resources",
+    description:
+      "List documents, records, and other data exposed by MCP servers. Use this when the user refers to something that is not a local file, such as a URI with a custom scheme, then load a match with read_mcp_resource. Each entry names the server to read it from.",
+    category: "mcp",
+    parameters: {
+      type: "object",
+      properties: {
+        server: { type: "string", description: "MCP server name as configured. Omit to list every server." },
+      },
+      required: [],
+    },
+  },
+  {
+    id: "read_mcp_resource",
+    name: "read_mcp_resource",
+    description:
+      "Read one MCP resource by server and URI. Not for local files. Always return the full contents rather than slicing or filtering them; oversized output is truncated automatically.",
+    category: "mcp",
+    parameters: {
+      type: "object",
+      properties: {
+        server: { type: "string", description: "The server field of the discovered resource." },
+        uri: { type: "string", description: "Exact resource URI from discovery, an expanded uriTemplate, or the user." },
+      },
+      required: ["server", "uri"],
+    },
+  },
+  {
     id: "patch_file",
     name: "patch_file",
     description:
@@ -506,6 +541,7 @@ export interface ToolBundle {
   websearch: WebSearchTool;
   fileDiff: FileDiffTool;
   skill: SkillTool;
+  mcpResource: McpResourceTools;
   patch: PatchTools;
   worktree: WorktreeTools;
 }
@@ -525,6 +561,7 @@ export interface HandlerContext {
   websearch: WebSearchTool;
   fileDiff: FileDiffTool;
   skill: SkillTool;
+  mcpResource: McpResourceTools;
   patch: PatchTools;
   worktree: WorktreeTools;
 }
@@ -850,6 +887,24 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
     return normalizeSuccess("skill", true, r.output ?? "", r.metadata);
   },
+  list_mcp_resources: async (args, ctx) => {
+    const server = pick(args, "list_mcp_resources", "server");
+    const serverStr = typeof server === "string" && server ? server : undefined;
+    const r = await ctx.mcpResource.listResources(serverStr);
+    if (!r.success) {
+      return { toolName: "list_mcp_resources", output: r.error ?? "list_mcp_resources failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("list_mcp_resources", true, r.output ?? "", r.metadata);
+  },
+  read_mcp_resource: async (args, ctx) => {
+    const server = asString(requireValue(args, "read_mcp_resource", "server"), "server");
+    const uri = asString(requireValue(args, "read_mcp_resource", "uri"), "uri");
+    const r = await ctx.mcpResource.readResource(server, uri);
+    if (!r.success) {
+      return { toolName: "read_mcp_resource", output: r.error ?? "read_mcp_resource failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("read_mcp_resource", true, r.output ?? "", r.metadata);
+  },
   patch_file: async (args, ctx) => {
     const patch = asString(requireValue(args, "patch_file", "patch"), "patch");
     const r = await ctx.patch.applyPatch(patch);
@@ -945,6 +1000,7 @@ export class ToolExecutor {
         websearch: new WebSearchTool(),
         fileDiff: new FileDiffTool(),
         skill: new SkillTool(),
+        mcpResource: new McpResourceTools(),
         patch: new PatchTools(provider),
         worktree: new WorktreeTools(provider),
       };

@@ -9,7 +9,7 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - Delegate execution to the active `ExecutionProvider`.
 - Enforce the invariant: *"NO REAL ACTION = NO SUCCESS"*. Every tool MUST perform physical disk/shell actions and verify results.
 
-## Registered Tools (26 + dynamic MCP)
+## Registered Tools (28 + dynamic MCP)
 - `read_file`: Reads file content with 1-based line numbers.
 - `write_file`: Overwrites/creates pristine files on disk.
 - `edit_file`: Multi-tier matching (see below).
@@ -27,6 +27,8 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - `websearch`: Searches the web via DuckDuckGo for current information (see below).
 - `file_diff`: Computes a unified diff between two file contents (see below).
 - `skill`: Loads specialized skill instructions (see below).
+- `list_mcp_resources`: Lists resources exposed by MCP servers (see below).
+- `read_mcp_resource`: Reads an MCP resource by server and URI (see below).
 - `patch_file`: Applies a multi-file OpenCode-format patch (see below).
 - `question`: Asks the user interactive questions mid-run (see below).
 - **MCP tools**: every connected MCP server contributes `mcp_<server>__<tool>` tools dynamically (see below).
@@ -58,6 +60,9 @@ ALIASES kept: `old_string`/`new_string`/`replace_all` (planner prompt compatibil
 
 ## `skill` (`src/skill-tools.ts`)
 `SkillTool.loadSkill(id)`: Loads specialized skill instructions into the conversation. Built-in skills: typescript-expert, react-specialist, api-design, testing-strategy, security-audit. Each skill has id, name, description, path, tags. Returns skill metadata + instructions placeholder. Also exports `listSkills()` and `searchSkills(query)`. Emits `tool.started/completed/failed` on the bus.
+
+## `list_mcp_resources` & `read_mcp_resource` (`src/mcp-resource-tools.ts`)
+`McpResourceTools.listResources(server?)`: Lists resources and templates from one or all connected MCP servers. `McpResourceTools.readResource(server, uri)`: Reads a resource by server and URI. Content truncated at 50 000 chars. Uses `mcpManager.listServerResources/listAllResources/readServerResource`. Emits `tool.started/completed/failed` on the bus.
 
 ## Interactive "Ask" Gate (`ToolExecutor.askGateDangerousTool`)
 For `DANGEROUS_TOOLS` (`shell_command`, `delete_file`, `git_commit`) in build mode, when `SessionData.confirmDangerous === true` and no persistent grant exists, the executor emits `permission.requested` and waits on `createPermissionRequest()` (30s timeout → deny-once). Decisions `allow-always`/`deny-always` persist in `SessionData.permissionGrants`. Default (confirmDangerous off) = full autonomous access per AGENTS.md. Depends on `@soryos/session` (cycle-safe) for grant persistence.
