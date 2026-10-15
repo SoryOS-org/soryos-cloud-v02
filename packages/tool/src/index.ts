@@ -15,6 +15,7 @@ import { CodebaseTools } from "./codebase-tools";
 import { WebFetchTool } from "./web-tools";
 import { WebSearchTool } from "./websearch-tools";
 import { FileDiffTool } from "./file-diff-tools";
+import { SkillTool } from "./skill-tools";
 import { PatchTools } from "./patch-tools";
 import { WorktreeTools } from "./worktree-tools";
 import { CodemodeTools, DEFAULT_CODEMODE_TIMEOUT_MS } from "./codemode-tools";
@@ -45,6 +46,8 @@ export { WebSearchTool } from "./websearch-tools";
 export type { WebSearchResult, WebSearchOutput } from "./websearch-tools";
 export { FileDiffTool, computeFileDiff } from "./file-diff-tools";
 export type { FileDiffResult, FileDiffInfo } from "./file-diff-tools";
+export { SkillTool, BUILTIN_SKILLS, getSkillDefinition, listSkills, searchSkills } from "./skill-tools";
+export type { SkillDefinition, SkillLoadResult } from "./skill-tools";
 
 export type { CodemodeResult } from "./codemode-tools";
 export type ToolArgs = Record<string, any>;
@@ -71,6 +74,7 @@ const ALIASES: Record<string, Record<string, string[]>> = {
   webfetch: { url: ["link", "href", "uri", "address"] },
   websearch: { query: ["q", "search", "searchQuery"] },
   file_diff: { file: ["path", "filename"], before: ["oldContent", "original"], after: ["newContent", "updated"] },
+  skill: { id: ["skillId", "skill"] },
   patch_file: { patch: ["patchText", "patch_text", "diff", "patchTextContent"] },
   question: { questions: ["prompts", "asks"] },
 };
@@ -410,6 +414,23 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    id: "skill",
+    name: "skill",
+    description:
+      "Load a specialized skill's instructions and resources into the current conversation when the task at hand matches its description. Use this to get expert guidance for specific types of tasks.",
+    category: "agent",
+    parameters: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "The ID of an available skill (e.g., typescript-expert, react-specialist, api-design)",
+        },
+      },
+      required: ["id"],
+    },
+  },
+  {
     id: "patch_file",
     name: "patch_file",
     description:
@@ -484,6 +505,7 @@ export interface ToolBundle {
   web: WebFetchTool;
   websearch: WebSearchTool;
   fileDiff: FileDiffTool;
+  skill: SkillTool;
   patch: PatchTools;
   worktree: WorktreeTools;
 }
@@ -502,6 +524,7 @@ export interface HandlerContext {
   web: WebFetchTool;
   websearch: WebSearchTool;
   fileDiff: FileDiffTool;
+  skill: SkillTool;
   patch: PatchTools;
   worktree: WorktreeTools;
 }
@@ -819,6 +842,14 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
     return normalizeSuccess("file_diff", true, r.output ?? "", r.metadata);
   },
+  skill: async (args, ctx) => {
+    const id = asString(requireValue(args, "skill", "id"), "id");
+    const r = await ctx.skill.loadSkill(id);
+    if (!r.success) {
+      return { toolName: "skill", output: r.error ?? "skill failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("skill", true, r.output ?? "", r.metadata);
+  },
   patch_file: async (args, ctx) => {
     const patch = asString(requireValue(args, "patch_file", "patch"), "patch");
     const r = await ctx.patch.applyPatch(patch);
@@ -913,6 +944,7 @@ export class ToolExecutor {
         web: new WebFetchTool(),
         websearch: new WebSearchTool(),
         fileDiff: new FileDiffTool(),
+        skill: new SkillTool(),
         patch: new PatchTools(provider),
         worktree: new WorktreeTools(provider),
       };
