@@ -9,7 +9,7 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - Delegate execution to the active `ExecutionProvider`.
 - Enforce the invariant: *"NO REAL ACTION = NO SUCCESS"*. Every tool MUST perform physical disk/shell actions and verify results.
 
-## Registered Tools (23 + dynamic MCP)
+## Registered Tools (24 + dynamic MCP)
 - `read_file`: Reads file content with 1-based line numbers.
 - `write_file`: Overwrites/creates pristine files on disk.
 - `edit_file`: Multi-tier matching (see below).
@@ -24,6 +24,7 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - `codebase_search`: Semantic search over the codebase.
 - `todo_write` & `todo_read`: Manages task roadmaps.
 - `webfetch`: Fetches an http(s) URL and returns status, headers and body (HTML → text).
+- `websearch`: Searches the web via DuckDuckGo for current information (see below).
 - `patch_file`: Applies a multi-file OpenCode-format patch (see below).
 - `question`: Asks the user interactive questions mid-run (see below).
 - **MCP tools**: every connected MCP server contributes `mcp_<server>__<tool>` tools dynamically (see below).
@@ -46,6 +47,9 @@ ALIASES kept: `old_string`/`new_string`/`replace_all` (planner prompt compatibil
 
 ## `webfetch` (`src/web-tools.ts`)
 `WebFetchTool.fetchPage(url, {method?, body?})`: http/https only, 15s AbortController timeout, `User-Agent: SoryOS-Agent/1.0`, body truncated at 20 000 chars (`[truncated after 20000 characters]`), HTML → plain text via `stripHtml`. Emits `tool.started/completed/failed` on the bus.
+
+## `websearch` (`src/websearch-tools.ts`)
+`WebSearchTool.search(query)`: Real web search via DuckDuckGo HTML endpoint (no API key required). 15s AbortController timeout, User-Agent mimics Chrome. Parses result blocks (title, URL with uddg redirect decoding, snippet). Max 10 results, snippets truncated at 300 chars. Emits `tool.started/completed/failed` on the bus. Returns honest "No search results found" when zero matches.
 
 ## Interactive "Ask" Gate (`ToolExecutor.askGateDangerousTool`)
 For `DANGEROUS_TOOLS` (`shell_command`, `delete_file`, `git_commit`) in build mode, when `SessionData.confirmDangerous === true` and no persistent grant exists, the executor emits `permission.requested` and waits on `createPermissionRequest()` (30s timeout → deny-once). Decisions `allow-always`/`deny-always` persist in `SessionData.permissionGrants`. Default (confirmDangerous off) = full autonomous access per AGENTS.md. Depends on `@soryos/session` (cycle-safe) for grant persistence.

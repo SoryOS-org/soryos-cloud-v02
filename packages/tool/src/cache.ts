@@ -62,9 +62,10 @@ export class LRUCache<T> {
    * Time complexity: O(1)
    */
   put(key: string, value: T): void {
-    if (key in this.map) {
+    const existing = this.map.get(key);
+    if (existing) {
       // Update existing key - remove and re-add to mark as recently used
-      this._remove(this.map.get(key));
+      this._remove(existing);
     }
 
     const newNode = new ListNode(key, value);
