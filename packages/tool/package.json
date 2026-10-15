@@ -12,10 +12,12 @@
     "@soryos/execution": "*",
     "@soryos/permissions": "*",
     "@soryos/schema": "*",
-    "uuid": "^9.0.0",
-    "@soryos/session": "*"
+    "@soryos/session": "*",
+    "diff": "^9.0.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@types/diff": "^7.0.2",
     "vitest": "^4.1.11"
   },
   "scripts": {

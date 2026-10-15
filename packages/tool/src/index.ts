@@ -14,6 +14,7 @@ import { GitTools } from "./git-tools";
 import { CodebaseTools } from "./codebase-tools";
 import { WebFetchTool } from "./web-tools";
 import { WebSearchTool } from "./websearch-tools";
+import { FileDiffTool } from "./file-diff-tools";
 import { PatchTools } from "./patch-tools";
 import { WorktreeTools } from "./worktree-tools";
 import { CodemodeTools, DEFAULT_CODEMODE_TIMEOUT_MS } from "./codemode-tools";
@@ -42,6 +43,8 @@ export { CodemodeTools, DEFAULT_CODEMODE_TIMEOUT_MS, MAX_CODEMODE_TIMEOUT_MS } f
 export { LRUCache } from "./cache";
 export { WebSearchTool } from "./websearch-tools";
 export type { WebSearchResult, WebSearchOutput } from "./websearch-tools";
+export { FileDiffTool, computeFileDiff } from "./file-diff-tools";
+export type { FileDiffResult, FileDiffInfo } from "./file-diff-tools";
 
 export type { CodemodeResult } from "./codemode-tools";
 export type ToolArgs = Record<string, any>;
@@ -67,6 +70,7 @@ const ALIASES: Record<string, Record<string, string[]>> = {
   codebase_search: { query: ["question", "search", "pattern"] },
   webfetch: { url: ["link", "href", "uri", "address"] },
   websearch: { query: ["q", "search", "searchQuery"] },
+  file_diff: { file: ["path", "filename"], before: ["oldContent", "original"], after: ["newContent", "updated"] },
   patch_file: { patch: ["patchText", "patch_text", "diff", "patchTextContent"] },
   question: { questions: ["prompts", "asks"] },
 };
@@ -389,6 +393,23 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    id: "file_diff",
+    name: "file_diff",
+    description:
+      "Computes a unified diff between two file contents (before and after). Returns a patch with additions/deletions counts. Use this to show what changed in a file.",
+    category: "filesystem",
+    parameters: {
+      type: "object",
+      properties: {
+        file: { type: "string", description: "File path shown in the diff header" },
+        before: { type: "string", description: "Original content of the file" },
+        after: { type: "string", description: "New content of the file" },
+        status: { type: "string", description: "Diff status: added, deleted, or modified (default: modified)" },
+      },
+      required: ["file", "before", "after"],
+    },
+  },
+  {
     id: "patch_file",
     name: "patch_file",
     description:
@@ -462,6 +483,7 @@ export interface ToolBundle {
   codebase: CodebaseTools;
   web: WebFetchTool;
   websearch: WebSearchTool;
+  fileDiff: FileDiffTool;
   patch: PatchTools;
   worktree: WorktreeTools;
 }
@@ -479,6 +501,7 @@ export interface HandlerContext {
   codebase: CodebaseTools;
   web: WebFetchTool;
   websearch: WebSearchTool;
+  fileDiff: FileDiffTool;
   patch: PatchTools;
   worktree: WorktreeTools;
 }
@@ -781,6 +804,21 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
     return normalizeSuccess("websearch", true, r.output ?? "", r.metadata);
   },
+  file_diff: async (args, ctx) => {
+    const file = asString(requireValue(args, "file_diff", "file"), "file");
+    const before = asString(requireValue(args, "file_diff", "before"), "before");
+    const after = asString(requireValue(args, "file_diff", "after"), "after");
+    const statusRaw = pick(args, "file_diff", "status");
+    const status =
+      statusRaw === "added" || statusRaw === "deleted" || statusRaw === "modified"
+        ? statusRaw
+        : undefined;
+    const r = ctx.fileDiff.diffContents(file, before, after, status);
+    if (!r.success) {
+      return { toolName: "file_diff", output: r.error ?? "file_diff failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("file_diff", true, r.output ?? "", r.metadata);
+  },
   patch_file: async (args, ctx) => {
     const patch = asString(requireValue(args, "patch_file", "patch"), "patch");
     const r = await ctx.patch.applyPatch(patch);
@@ -874,6 +912,7 @@ export class ToolExecutor {
         codebase: new CodebaseTools(provider),
         web: new WebFetchTool(),
         websearch: new WebSearchTool(),
+        fileDiff: new FileDiffTool(),
         patch: new PatchTools(provider),
         worktree: new WorktreeTools(provider),
       };
