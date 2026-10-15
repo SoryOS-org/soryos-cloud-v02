@@ -9,28 +9,29 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - Delegate execution to the active `ExecutionProvider`.
 - Enforce the invariant: *"NO REAL ACTION = NO SUCCESS"*. Every tool MUST perform physical disk/shell actions and verify results.
 
-## Registered Tools (31 + dynamic MCP)
+## Registered Tools (32 + dynamic MCP)
 - `read_file`: Reads file content with 1-based line numbers.
 - `write_file`: Overwrites/creates pristine files on disk.
 - `edit_file`: Multi-tier matching (see below).
 - `delete_file`: Safely deletes a file from disk.
-- `shell_command`: Executes bash commands with a 60s timeout.
-- `glob_files`: Matches files using glob patterns.
-- `grep_search`: Searches regex or text patterns across files (ripgrep fast path, see below).
+- `shell_command`: Executes bash commands with a 60s timeout; supports `background` mode.
+- `glob_files`: Matches files using glob patterns; supports `hidden` and `limit`.
+- `grep_search`: Searches regex or text patterns across files (ripgrep fast path, supports `include` glob filter).
 - `list_files`: Recursively lists directories and files.
 - `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`: Git operations.
 - `git_worktree_create`, `git_worktree_list`, `git_worktree_remove`: Isolated git worktrees (see below).
 - `codemode`: Executes a JS program chaining many tool calls in one step (see below).
 - `codebase_search`: Semantic search over the codebase.
 - `todo_write` & `todo_read`: Manages task roadmaps.
-- `webfetch`: Fetches an http(s) URL and returns status, headers and body (HTML → text).
+- `webfetch`: Fetches an http(s) URL and returns status, headers and body; supports `format` (text|html).
 - `websearch`: Searches the web via DuckDuckGo for current information (see below).
 - `file_diff`: Computes a unified diff between two file contents (see below).
 - `skill`: Loads specialized skill instructions (see below).
 - `list_mcp_resources`: Lists resources exposed by MCP servers (see below).
 - `read_mcp_resource`: Reads an MCP resource by server and URI (see below).
-- `session_rename`: Renames the current session (see below).
-- `models`: Searches available AI models (see below).
+- `session_rename`: Renames a session (optional `sessionID`) (see below).
+- `session_move`: Moves a session to another directory (optional `sessionID`).
+- `models`: Searches available AI models with paging (`all`, `limit`, `offset`) (see below).
 - `session_info`: Gets information about the current session (see below).
 - `patch_file`: Applies a multi-file OpenCode-format patch (see below).
 - `question`: Asks the user interactive questions mid-run (see below).
@@ -67,8 +68,8 @@ ALIASES kept: `old_string`/`new_string`/`replace_all` (planner prompt compatibil
 ## `list_mcp_resources` & `read_mcp_resource` (`src/mcp-resource-tools.ts`)
 `McpResourceTools.listResources(server?)`: Lists resources and templates from one or all connected MCP servers. `McpResourceTools.readResource(server, uri)`: Reads a resource by server and URI. Content truncated at 50 000 chars. Uses `mcpManager.listServerResources/listAllResources/readServerResource`. Emits `tool.started/completed/failed` on the bus.
 
-## `session_rename`, `models`, `session_info` (`src/opencode-tools.ts`)
-`OpenCodeTools.renameSession(sessionId, title)`: Renames a session via sessionStore. `OpenCodeTools.listModels(query?, provider?)`: Searches built-in model registry (Gemini, GPT-4o, Claude, Mistral). `OpenCodeTools.getSessionInfo(sessionId)`: Returns session metadata. Emits `tool.started/completed/failed` on the bus. Exported pure function `searchModels`.
+## `session_rename`, `session_move`, `models`, `session_info` (`src/opencode-tools.ts`)
+`OpenCodeTools.renameSession(sessionId, title)`: Renames a session via sessionStore. `OpenCodeTools.moveSession(sessionId, directory)`: Moves a session to another directory (validates existence + isDirectory, supports ~). `OpenCodeTools.listModels(query?, provider?, opts?)`: Searches built-in model registry with paging (`all`, `limit`, `offset`); returns `{ models, total }`. `OpenCodeTools.getSessionInfo(sessionId)`: Returns session metadata. Emits `tool.started/completed/failed` on the bus. Exported pure function `searchModels`.
 
 ## Interactive "Ask" Gate (`ToolExecutor.askGateDangerousTool`)
 For `DANGEROUS_TOOLS` (`shell_command`, `delete_file`, `git_commit`) in build mode, when `SessionData.confirmDangerous === true` and no persistent grant exists, the executor emits `permission.requested` and waits on `createPermissionRequest()` (30s timeout → deny-once). Decisions `allow-always`/`deny-always` persist in `SessionData.permissionGrants`. Default (confirmDangerous off) = full autonomous access per AGENTS.md. Depends on `@soryos/session` (cycle-safe) for grant persistence.

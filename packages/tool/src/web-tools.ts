@@ -38,10 +38,11 @@ function stripHtml(html: string): string {
 export class WebFetchTool {
   async fetchPage(
     url: string,
-    options?: { method?: string; body?: string }
+    options?: { method?: string; body?: string; format?: string }
   ): Promise<WebFetchResult> {
     const callId = `webfetch-${Date.now()}`;
     const method = (options?.method ?? "GET").toUpperCase();
+    const format = options?.format ?? "text";
 
     let parsed: URL;
     try {
@@ -72,7 +73,7 @@ export class WebFetchTool {
       const contentType = response.headers.get("content-type") ?? "";
       const rawBody = await response.text().catch(() => "");
       const isHtml = contentType.includes("text/html") || /^\s*<(!doctype|html)/i.test(rawBody);
-      const text = isHtml ? stripHtml(rawBody) : rawBody;
+      const text = format === "html" ? rawBody : isHtml && format !== "html" ? stripHtml(rawBody) : rawBody;
       const truncated = text.length > MAX_BODY_CHARS;
       const bounded = truncated ? `${text.slice(0, MAX_BODY_CHARS)}\n… [truncated after ${MAX_BODY_CHARS} characters]` : text;
 

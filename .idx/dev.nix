@@ -2,19 +2,12 @@
   channel = "stable-24.11";
   packages = [
     pkgs.nodejs_20
-    pkgs.python3
     pkgs.git
-    pkgs.rustc
-    pkgs.cargo
-    pkgs.gcc
-    pkgs.gnumake
   ];
   idx.extensions = [
-    "christian-kohler.path-intellisense"
     "dbaeumer.vscode-eslint"
     "esbenp.prettier-vscode"
     "bradlc.vscode-tailwindcss"
-    "rust-lang.rust-analyzer"
   ];
   idx.previews = {
     enable = true;

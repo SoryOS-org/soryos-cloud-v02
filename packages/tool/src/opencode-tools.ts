@@ -1,10 +1,12 @@
 /**
  * opencode — outils d'auto-gestion de l'agent.
- * Renomme les sessions, liste les modèles disponibles, etc.
+ * Renomme/déplace les sessions, liste les modèles disponibles, etc.
  */
 
 import { globalEventBus } from "@soryos/bus";
 import { sessionStore } from "@soryos/session";
+import { resolve } from "node:path";
+import { existsSync, statSync } from "node:fs";
 
 export interface OpenCodeResult {
   success: boolean;
@@ -34,7 +36,17 @@ const AVAILABLE_MODELS: ModelInfo[] = [
   { id: "mistral-large", name: "Mistral Large", provider: "mistral", description: "European flagship model" },
 ];
 
-export function searchModels(query?: string, provider?: string): ModelInfo[] {
+export interface ModelPage {
+  providers: { id: string; name: string; models: ModelInfo[] }[];
+  total: number;
+  next: number | null;
+}
+
+export function searchModels(
+  query?: string,
+  provider?: string,
+  opts?: { all?: boolean; limit?: number; offset?: number },
+): { models: ModelInfo[]; total: number } {
   let models = AVAILABLE_MODELS;
 
   if (provider) {
@@ -53,7 +65,10 @@ export function searchModels(query?: string, provider?: string): ModelInfo[] {
     );
   }
 
-  return models;
+  const total = models.length;
+  const offset = opts?.offset ?? 0;
+  const limit = opts?.limit ?? 20;
+  return { models: models.slice(offset, offset + limit), total };
 }
 
 export class OpenCodeTools {
@@ -93,19 +108,66 @@ export class OpenCodeTools {
   }
 
   /**
-   * List available models with optional filtering.
+   * Move a session to another directory.
    */
-  listModels(query?: string, provider?: string): OpenCodeResult {
+  async moveSession(sessionId: string, directory: string): Promise<OpenCodeResult> {
+    const callId = `opencode-move-${Date.now()}`;
+    const trimmed = directory.trim();
+
+    if (!trimmed) {
+      return { success: false, error: "Directory must not be empty." };
+    }
+
+    globalEventBus.emit("tool.started", { toolName: "session_move", input: { sessionId, directory: trimmed }, callId });
+
+    try {
+      const session = sessionStore.get(sessionId);
+      if (!session) {
+        const message = `Session "${sessionId}" not found.`;
+        globalEventBus.emit("tool.failed", { toolName: "session_move", error: message, callId });
+        return { success: false, error: message };
+      }
+
+      const target = resolve(trimmed.startsWith("~") ? trimmed.replace("~", process.env.HOME ?? "~") : trimmed);
+      if (!existsSync(target)) {
+        const message = `Directory "${target}" does not exist.`;
+        globalEventBus.emit("tool.failed", { toolName: "session_move", error: message, callId });
+        return { success: false, error: message };
+      }
+      if (!statSync(target).isDirectory()) {
+        const message = `"${target}" is not a directory.`;
+        globalEventBus.emit("tool.failed", { toolName: "session_move", error: message, callId });
+        return { success: false, error: message };
+      }
+
+      sessionStore.update(sessionId, { cwd: target });
+
+      const output = `Moved session ${sessionId} to ${target}.`;
+      const metadata = { sessionId, directory: target };
+
+      globalEventBus.emit("tool.completed", { toolName: "session_move", output, callId, metadata });
+      return { success: true, output, metadata };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      globalEventBus.emit("tool.failed", { toolName: "session_move", error: message, callId });
+      return { success: false, error: `Failed to move session: ${message}` };
+    }
+  }
+
+  /**
+   * List available models with optional filtering and paging.
+   */
+  listModels(query?: string, provider?: string, opts?: { all?: boolean; limit?: number; offset?: number }): OpenCodeResult {
     const callId = `opencode-models-${Date.now()}`;
 
-    globalEventBus.emit("tool.started", { toolName: "models", input: { query, provider }, callId });
+    globalEventBus.emit("tool.started", { toolName: "models", input: { query, provider, ...opts }, callId });
 
-    const models = searchModels(query, provider);
+    const { models, total } = searchModels(query, provider, opts);
 
     if (models.length === 0) {
       const output = `No models found${query ? ` matching "${query}"` : ""}${provider ? ` from provider "${provider}"` : ""}.`;
       globalEventBus.emit("tool.completed", { toolName: "models", output, callId, metadata: { count: 0 } });
-      return { success: true, output, metadata: { count: 0 } };
+      return { success: true, output, metadata: { count: 0, total } };
     }
 
     const byProvider = new Map<string, ModelInfo[]>();
@@ -123,8 +185,12 @@ export class OpenCodeTools {
       sections.push(`## ${providerId}\n${modelLines}`);
     }
 
-    const output = `Available models (${models.length}):\n\n${sections.join("\n\n")}`;
-    const metadata = { count: models.length, providers: Array.from(byProvider.keys()) };
+    const offset = opts?.offset ?? 0;
+    const limit = opts?.limit ?? 20;
+    const next = offset + limit < total ? offset + limit : null;
+    const header = `Available models (${models.length} of ${total})${next !== null ? ` — next page at offset ${next}` : ""}:`;
+    const output = `${header}\n\n${sections.join("\n\n")}`;
+    const metadata = { count: models.length, total, next, providers: Array.from(byProvider.keys()) };
 
     globalEventBus.emit("tool.completed", { toolName: "models", output, callId, metadata });
     return { success: true, output, metadata };

@@ -622,7 +622,9 @@ export class FilesystemTools {
   async globFiles(
     pattern: string,
     directoryPath: string = '',
-    caseSensitive: boolean = false
+    caseSensitive: boolean = false,
+    hidden: boolean = false,
+    limit: number = 200
   ): Promise<FileSystemToolResult> {
     const callId = `glob-${Date.now()}`;
     
@@ -643,7 +645,7 @@ export class FilesystemTools {
 
       globalEventBus.emit('tool.started', { 
         toolName: 'glob_files', 
-        input: { pattern, directoryPath, caseSensitive },
+        input: { pattern, directoryPath, caseSensitive, hidden, limit },
         callId 
       });
 
@@ -655,6 +657,7 @@ export class FilesystemTools {
       const regex = globToRegExp(pattern, caseSensitive);
       const matched = allEntries.filter((entry: FileEntry) => {
         if (entry.isDirectory) return false;
+        if (!hidden && entry.path.split('/').some((seg) => seg.startsWith('.') && seg !== '.' && seg !== '..')) return false;
         const fullPath = base ? `${base}/${entry.path}` : entry.path;
         if (regex.test(fullPath)) return true;
         if (!pattern.includes('/')) return regex.test(entry.name);
@@ -680,13 +683,16 @@ export class FilesystemTools {
         return result;
       }
 
+      const truncated = matched.length > limit;
+      const shown = truncated ? matched.slice(0, limit) : matched;
       const result: FileSystemToolResult = {
         success: true,
-        output: `Matched ${matched.length} files for pattern "${pattern}":\n${matched.map(displayPath).join('\n')}`,
+        output: `Matched ${matched.length} files for pattern "${pattern}"${truncated ? ` (showing first ${limit})` : ""}:\n${shown.map(displayPath).join('\n')}`,
         metadata: {
           count: matched.length,
           pattern,
-          files: matched.map(displayPath)
+          truncated,
+          files: shown.map(displayPath)
         }
       };
 
@@ -730,7 +736,8 @@ export class FilesystemTools {
     path: string = '',
     caseSensitive: boolean = false,
     useRegex: boolean = false,
-    maxMatches: number = 50
+    maxMatches: number = 50,
+    include?: string
   ): Promise<FileSystemToolResult> {
     const callId = `grep-${Date.now()}`;
     
@@ -751,7 +758,7 @@ export class FilesystemTools {
 
       globalEventBus.emit('tool.started', { 
         toolName: 'grep_search', 
-        input: { query, path, caseSensitive, useRegex, maxMatches },
+        input: { query, path, caseSensitive, useRegex, maxMatches, include },
         callId 
       });
 
@@ -813,6 +820,7 @@ export class FilesystemTools {
       const base = path.replace(/\/+$/, '');
       const matches: string[] = [];
       const queryToCheck = caseSensitive ? query : query.toLowerCase();
+      const includeRegex = include ? globToRegExp(include, caseSensitive) : null;
       let regex: RegExp | null = null;
       if (useRegex) {
         try {
@@ -827,6 +835,10 @@ export class FilesystemTools {
         if (matches.length >= maxMatches) break;
 
         const fullPath = base ? `${base}/${entry.path}` : entry.path;
+        if (includeRegex && include) {
+          const included = includeRegex.test(fullPath) || (!include.includes('/') && includeRegex.test(entry.name));
+          if (!included) continue;
+        }
         try {
           const content = await this.provider.readFile(fullPath);
           const lines = content.split('\n');

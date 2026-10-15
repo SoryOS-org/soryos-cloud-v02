@@ -84,7 +84,8 @@ const ALIASES: Record<string, Record<string, string[]>> = {
   skill: { id: ["skillId", "skill"] },
   list_mcp_resources: { server: ["serverName", "mcpServer"] },
   read_mcp_resource: { server: ["serverName", "mcpServer"], uri: ["resourceUri", "resource"] },
-  session_rename: { title: ["newTitle", "name"] },
+  session_rename: { title: ["newTitle", "name"], sessionID: ["sessionId", "session"] },
+  session_move: { directory: ["dir", "path", "cwd"], sessionID: ["sessionId", "session"] },
   models: { query: ["search", "q"], provider: ["providerId"] },
   patch_file: { patch: ["patchText", "patch_text", "diff", "patchTextContent"] },
   question: { questions: ["prompts", "asks"] },
@@ -176,6 +177,8 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
         pattern: { type: "string", description: "Glob pattern to match" },
         path: { type: "string", description: "Directory to search in (defaults to the workspace root)" },
         caseSensitive: { type: "boolean", description: "Case-sensitive matching" },
+        hidden: { type: "boolean", description: "Include hidden files and directories (dotfiles)" },
+        limit: { type: "number", description: "Maximum number of paths to return (default 200)" },
       },
       required: ["pattern"],
     },
@@ -193,6 +196,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
         useRegex: { type: "boolean", description: "Treat the query as a regular expression" },
         caseSensitive: { type: "boolean", description: "Case-sensitive matching" },
         maxMatches: { type: "number", description: "Maximum number of matches to return" },
+        include: { type: "string", description: "Only search files matching this glob (e.g. *.ts, src/**/*.tsx)" },
       },
       required: ["query"],
     },
@@ -207,7 +211,8 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       properties: {
         command: { type: "string", description: "The bash command to execute" },
         cwd: { type: "string", description: "Working directory for the command" },
-        timeoutMs: { type: "number", description: "Timeout in milliseconds (default 60000)" },
+        timeoutMs: { type: "number", description: "Timeout in milliseconds (default 60000, 0 = no timeout)" },
+        background: { type: "boolean", description: "Run the command in the background and return immediately with its PID" },
       },
       required: ["command"],
     },
@@ -382,7 +387,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     id: "webfetch",
     name: "webfetch",
     description:
-      "Fetches a URL over HTTP(S) and returns the status, headers and body (HTML is converted to plain text). Use it to read documentation, APIs, or any public page. Only http and https URLs are allowed; the body is truncated after 20000 characters.",
+      "Fetches a URL over HTTP(S) and returns the body. Use it to read documentation, APIs, or any public page. Only http and https URLs are allowed; the body is truncated after 20000 characters.",
     category: "web",
     parameters: {
       type: "object",
@@ -390,6 +395,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
         url: { type: "string", description: "The URL to fetch (http or https)" },
         method: { type: "string", description: "HTTP method, defaults to GET" },
         body: { type: "string", description: "Optional request body for POST/PUT" },
+        format: { type: "string", description: "Output format: text, markdown, or html (default: text)" },
       },
       required: ["url"],
     },
@@ -474,27 +480,46 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     id: "session_rename",
     name: "session_rename",
     description:
-      "Rename the current session. Use a short, specific title that summarizes the work being done.",
+      "Rename a session, or omit sessionID to rename the current session. Use a short, specific title that summarizes the work being done.",
     category: "agent",
     parameters: {
       type: "object",
       properties: {
         title: { type: "string", description: "New session title." },
+        sessionID: { type: "string", description: "Session to rename. Omit for the current session." },
       },
       required: ["title"],
+    },
+  },
+  {
+    id: "session_move",
+    name: "session_move",
+    description:
+      "Move a session to another directory, or omit sessionID to move the current session. The directory must already exist. Do not run destination-dependent tools in the same step.",
+    category: "agent",
+    parameters: {
+      type: "object",
+      properties: {
+        directory: { type: "string", description: "Destination directory (absolute or relative to the current one). Supports ~." },
+        sessionID: { type: "string", description: "Session to move. Omit for the current session." },
+      },
+      required: ["directory"],
     },
   },
   {
     id: "models",
     name: "models",
     description:
-      "Search the models available to use. Use this to find available AI models by name, provider, or capability.",
+      "Search the models available to use. Use this to turn a model name the user mentions into an exact reference before running a subagent on it. Check your own provider first.",
     category: "agent",
     parameters: {
       type: "object",
       properties: {
         query: { type: "string", description: "Text to search for in model names and IDs." },
         provider: { type: "string", description: "Provider ID to filter by (e.g., google, openai, anthropic)." },
+        all: { type: "boolean", description: "Include older versions of each model family. By default only the newest version is listed." },
+        limit: { type: "number", description: "Maximum number of models to return. Defaults to 20." },
+        offset: { type: "number", description: "Number of models to skip, for paging through results." },
       },
       required: [],
     },
@@ -799,7 +824,9 @@ const HANDLERS: Record<string, ToolHandler> = {
     const path = asString(pick(args, "glob_files", "path") ?? "", "path");
     const caseSensitive =
       asOptionalBoolean(pick(args, "glob_files", "caseSensitive"), "caseSensitive") ?? false;
-    const r = await ctx.fs.globFiles(pattern, path, caseSensitive);
+    const hidden = asOptionalBoolean(pick(args, "glob_files", "hidden"), "hidden") ?? false;
+    const limit = asOptionalNumber(pick(args, "glob_files", "limit"), "limit") ?? 200;
+    const r = await ctx.fs.globFiles(pattern, path, caseSensitive, hidden, limit);
     return fromFilesystem("glob_files", r);
   },
   grep_search: async (args, ctx) => {
@@ -810,14 +837,17 @@ const HANDLERS: Record<string, ToolHandler> = {
     const useRegex = asOptionalBoolean(pick(args, "grep_search", "useRegex"), "useRegex") ?? false;
     const maxMatches =
       asOptionalNumber(pick(args, "grep_search", "maxMatches"), "maxMatches") ?? 50;
-    const r = await ctx.fs.grepSearch(query, path, caseSensitive, useRegex, maxMatches);
+    const includeRaw = pick(args, "grep_search", "include");
+    const include = typeof includeRaw === "string" && includeRaw ? includeRaw : undefined;
+    const r = await ctx.fs.grepSearch(query, path, caseSensitive, useRegex, maxMatches, include);
     return fromFilesystem("grep_search", r);
   },
   shell_command: async (args, ctx) => {
     const command = asString(requireValue(args, "shell_command", "command"), "command");
     const cwd = asString(pick(args, "shell_command", "cwd") ?? "", "cwd");
     const timeoutMs = asOptionalNumber(pick(args, "shell_command", "timeoutMs"), "timeoutMs");
-    const options: ShellCommandOptions = { cwd, timeoutMs: timeoutMs ?? 60000 };
+    const background = asOptionalBoolean(pick(args, "shell_command", "background"), "background") ?? false;
+    const options: ShellCommandOptions = { cwd, timeoutMs: timeoutMs ?? 60000, background };
     const r = await ctx.shell.shellCommand(command, options);
     return fromShell(r);
   },
@@ -895,9 +925,11 @@ const HANDLERS: Record<string, ToolHandler> = {
     const url = asString(requireValue(args, "webfetch", "url"), "url");
     const method = pick(args, "webfetch", "method");
     const body = pick(args, "webfetch", "body");
+    const format = pick(args, "webfetch", "format");
     const r = await ctx.web.fetchPage(url, {
       method: typeof method === "string" ? method : undefined,
       body: typeof body === "string" ? body : undefined,
+      format: typeof format === "string" ? format : undefined,
     });
     if (!r.success) {
       return { toolName: "webfetch", output: r.error ?? "webfetch failed", isError: true, metadata: r.metadata };
@@ -955,18 +987,34 @@ const HANDLERS: Record<string, ToolHandler> = {
   },
   session_rename: async (args, ctx) => {
     const title = asString(requireValue(args, "session_rename", "title"), "title");
-    const r = await ctx.opencode.renameSession(ctx.session.id, title);
+    const sessionIDRaw = pick(args, "session_rename", "sessionID");
+    const sessionId = typeof sessionIDRaw === "string" && sessionIDRaw ? sessionIDRaw : ctx.session.id;
+    const r = await ctx.opencode.renameSession(sessionId, title);
     if (!r.success) {
       return { toolName: "session_rename", output: r.error ?? "session_rename failed", isError: true, metadata: r.metadata };
     }
     return normalizeSuccess("session_rename", true, r.output ?? "", r.metadata);
   },
+  session_move: async (args, ctx) => {
+    const directory = asString(requireValue(args, "session_move", "directory"), "directory");
+    const sessionIDRaw = pick(args, "session_move", "sessionID");
+    const sessionId = typeof sessionIDRaw === "string" && sessionIDRaw ? sessionIDRaw : ctx.session.id;
+    const r = await ctx.opencode.moveSession(sessionId, directory);
+    if (!r.success) {
+      return { toolName: "session_move", output: r.error ?? "session_move failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("session_move", true, r.output ?? "", r.metadata);
+  },
   models: async (args, ctx) => {
     const query = pick(args, "models", "query");
     const provider = pick(args, "models", "provider");
+    const all = asOptionalBoolean(pick(args, "models", "all"), "all") ?? false;
+    const limit = asOptionalNumber(pick(args, "models", "limit"), "limit") ?? 20;
+    const offset = asOptionalNumber(pick(args, "models", "offset"), "offset") ?? 0;
     const r = ctx.opencode.listModels(
       typeof query === "string" && query ? query : undefined,
-      typeof provider === "string" && provider ? provider : undefined
+      typeof provider === "string" && provider ? provider : undefined,
+      { all, limit, offset }
     );
     if (!r.success) {
       return { toolName: "models", output: r.error ?? "models failed", isError: true, metadata: r.metadata };
