@@ -1,5 +1,5 @@
 { pkgs, ... }: {
-  channel = "stable-23.11";
+  channel = "stable-24.11";
   packages = [
     pkgs.nodejs_20
     pkgs.python3
@@ -21,16 +21,9 @@
     previews = {
       web = {
         command = [
-          "npm"
-          "run"
-          "dev"
-          "--prefix"
-          "apps/web"
-          "--"
-          "--port"
-          "$PORT"
-          "--hostname"
-          "0.0.0.0"
+          "sh"
+          "-c"
+          "cd apps/web && npm run dev -- --port $PORT --hostname 0.0.0.0"
         ];
         manager = "web";
       };
