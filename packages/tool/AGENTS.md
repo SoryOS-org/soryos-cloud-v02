@@ -9,7 +9,7 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - Delegate execution to the active `ExecutionProvider`.
 - Enforce the invariant: *"NO REAL ACTION = NO SUCCESS"*. Every tool MUST perform physical disk/shell actions and verify results.
 
-## Registered Tools (28 + dynamic MCP)
+## Registered Tools (31 + dynamic MCP)
 - `read_file`: Reads file content with 1-based line numbers.
 - `write_file`: Overwrites/creates pristine files on disk.
 - `edit_file`: Multi-tier matching (see below).
@@ -29,6 +29,9 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - `skill`: Loads specialized skill instructions (see below).
 - `list_mcp_resources`: Lists resources exposed by MCP servers (see below).
 - `read_mcp_resource`: Reads an MCP resource by server and URI (see below).
+- `session_rename`: Renames the current session (see below).
+- `models`: Searches available AI models (see below).
+- `session_info`: Gets information about the current session (see below).
 - `patch_file`: Applies a multi-file OpenCode-format patch (see below).
 - `question`: Asks the user interactive questions mid-run (see below).
 - **MCP tools**: every connected MCP server contributes `mcp_<server>__<tool>` tools dynamically (see below).
@@ -63,6 +66,9 @@ ALIASES kept: `old_string`/`new_string`/`replace_all` (planner prompt compatibil
 
 ## `list_mcp_resources` & `read_mcp_resource` (`src/mcp-resource-tools.ts`)
 `McpResourceTools.listResources(server?)`: Lists resources and templates from one or all connected MCP servers. `McpResourceTools.readResource(server, uri)`: Reads a resource by server and URI. Content truncated at 50 000 chars. Uses `mcpManager.listServerResources/listAllResources/readServerResource`. Emits `tool.started/completed/failed` on the bus.
+
+## `session_rename`, `models`, `session_info` (`src/opencode-tools.ts`)
+`OpenCodeTools.renameSession(sessionId, title)`: Renames a session via sessionStore. `OpenCodeTools.listModels(query?, provider?)`: Searches built-in model registry (Gemini, GPT-4o, Claude, Mistral). `OpenCodeTools.getSessionInfo(sessionId)`: Returns session metadata. Emits `tool.started/completed/failed` on the bus. Exported pure function `searchModels`.
 
 ## Interactive "Ask" Gate (`ToolExecutor.askGateDangerousTool`)
 For `DANGEROUS_TOOLS` (`shell_command`, `delete_file`, `git_commit`) in build mode, when `SessionData.confirmDangerous === true` and no persistent grant exists, the executor emits `permission.requested` and waits on `createPermissionRequest()` (30s timeout → deny-once). Decisions `allow-always`/`deny-always` persist in `SessionData.permissionGrants`. Default (confirmDangerous off) = full autonomous access per AGENTS.md. Depends on `@soryos/session` (cycle-safe) for grant persistence.

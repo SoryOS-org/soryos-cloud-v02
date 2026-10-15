@@ -17,6 +17,7 @@ import { WebSearchTool } from "./websearch-tools";
 import { FileDiffTool } from "./file-diff-tools";
 import { SkillTool } from "./skill-tools";
 import { McpResourceTools } from "./mcp-resource-tools";
+import { OpenCodeTools } from "./opencode-tools";
 import { PatchTools } from "./patch-tools";
 import { WorktreeTools } from "./worktree-tools";
 import { CodemodeTools, DEFAULT_CODEMODE_TIMEOUT_MS } from "./codemode-tools";
@@ -52,6 +53,8 @@ export type { SkillDefinition, SkillLoadResult } from "./skill-tools";
 export { McpResourceTools } from "./mcp-resource-tools";
 export type { McpResourceResult } from "./mcp-resource-tools";
 export type { McpResourceInfo, McpResourceTemplateInfo, McpResourceContent, McpListResourcesResult } from "./mcp-client";
+export { OpenCodeTools, searchModels } from "./opencode-tools";
+export type { OpenCodeResult, ModelInfo } from "./opencode-tools";
 
 export type { CodemodeResult } from "./codemode-tools";
 export type ToolArgs = Record<string, any>;
@@ -81,6 +84,8 @@ const ALIASES: Record<string, Record<string, string[]>> = {
   skill: { id: ["skillId", "skill"] },
   list_mcp_resources: { server: ["serverName", "mcpServer"] },
   read_mcp_resource: { server: ["serverName", "mcpServer"], uri: ["resourceUri", "resource"] },
+  session_rename: { title: ["newTitle", "name"] },
+  models: { query: ["search", "q"], provider: ["providerId"] },
   patch_file: { patch: ["patchText", "patch_text", "diff", "patchTextContent"] },
   question: { questions: ["prompts", "asks"] },
 };
@@ -466,6 +471,47 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    id: "session_rename",
+    name: "session_rename",
+    description:
+      "Rename the current session. Use a short, specific title that summarizes the work being done.",
+    category: "agent",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "New session title." },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    id: "models",
+    name: "models",
+    description:
+      "Search the models available to use. Use this to find available AI models by name, provider, or capability.",
+    category: "agent",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Text to search for in model names and IDs." },
+        provider: { type: "string", description: "Provider ID to filter by (e.g., google, openai, anthropic)." },
+      },
+      required: [],
+    },
+  },
+  {
+    id: "session_info",
+    name: "session_info",
+    description:
+      "Get information about the current session including title, model, status, and message count.",
+    category: "agent",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
     id: "patch_file",
     name: "patch_file",
     description:
@@ -542,6 +588,7 @@ export interface ToolBundle {
   fileDiff: FileDiffTool;
   skill: SkillTool;
   mcpResource: McpResourceTools;
+  opencode: OpenCodeTools;
   patch: PatchTools;
   worktree: WorktreeTools;
 }
@@ -562,6 +609,7 @@ export interface HandlerContext {
   fileDiff: FileDiffTool;
   skill: SkillTool;
   mcpResource: McpResourceTools;
+  opencode: OpenCodeTools;
   patch: PatchTools;
   worktree: WorktreeTools;
 }
@@ -905,6 +953,33 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
     return normalizeSuccess("read_mcp_resource", true, r.output ?? "", r.metadata);
   },
+  session_rename: async (args, ctx) => {
+    const title = asString(requireValue(args, "session_rename", "title"), "title");
+    const r = await ctx.opencode.renameSession(ctx.session.id, title);
+    if (!r.success) {
+      return { toolName: "session_rename", output: r.error ?? "session_rename failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("session_rename", true, r.output ?? "", r.metadata);
+  },
+  models: async (args, ctx) => {
+    const query = pick(args, "models", "query");
+    const provider = pick(args, "models", "provider");
+    const r = ctx.opencode.listModels(
+      typeof query === "string" && query ? query : undefined,
+      typeof provider === "string" && provider ? provider : undefined
+    );
+    if (!r.success) {
+      return { toolName: "models", output: r.error ?? "models failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("models", true, r.output ?? "", r.metadata);
+  },
+  session_info: async (_args, ctx) => {
+    const r = ctx.opencode.getSessionInfo(ctx.session.id);
+    if (!r.success) {
+      return { toolName: "session_info", output: r.error ?? "session_info failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("session_info", true, r.output ?? "", r.metadata);
+  },
   patch_file: async (args, ctx) => {
     const patch = asString(requireValue(args, "patch_file", "patch"), "patch");
     const r = await ctx.patch.applyPatch(patch);
@@ -1001,6 +1076,7 @@ export class ToolExecutor {
         fileDiff: new FileDiffTool(),
         skill: new SkillTool(),
         mcpResource: new McpResourceTools(),
+        opencode: new OpenCodeTools(),
         patch: new PatchTools(provider),
         worktree: new WorktreeTools(provider),
       };
