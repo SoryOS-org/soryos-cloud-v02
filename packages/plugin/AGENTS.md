@@ -72,7 +72,13 @@ await ctx.event.subscribe((event) => {
 - Searches for entry files: `index.ts`, `index.js`, `plugin.ts`, `plugin.js`, `mod.ts`, `mod.js`
 
 ## Storage System
-Current implementation is a stub. Future implementations will persist plugin data across sessions.
+Real filesystem-backed key-value storage (`src/storage.ts`), one JSON file per plugin namespace:
+- Path: `.soryos/plugin-storage/<plugin-id>.json`
+- `get/set/remove/scan` physically read/write disk (NO fake storage)
+- `createPluginStorage(namespace, baseDir?)` — per-plugin isolated storage
+- `createMemoryStorage()` — in-memory storage used when no namespace is provided (never touches disk)
+- `loadPlugin()` automatically binds `context.storage` to the plugin's id as namespace
+- Empty namespace files are deleted on `remove` to avoid orphan files
 
 ## Plugin Lifecycle
 1. Plugin is loaded via `loadPlugin()`

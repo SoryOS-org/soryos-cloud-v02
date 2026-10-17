@@ -12,6 +12,7 @@ import {
   type Plugin,
   type PluginContext,
 } from "./index.js";
+import { createPluginStorage } from "./storage.js";
 
 export interface LoadPluginResult {
   id: string;
@@ -72,7 +73,12 @@ export async function loadPlugin(
 
   // Merge per-plugin config from loader options
   const pluginConfig = options.config?.[plugin.id] ?? options.config?.[source] ?? {};
-  const boundContext: PluginContext = { ...context, options: pluginConfig };
+  // Bind per-plugin filesystem storage (`.soryos/plugin-storage/<id>.json`)
+  const boundContext: PluginContext = {
+    ...context,
+    options: pluginConfig,
+    storage: createPluginStorage(plugin.id),
+  };
 
   const cleanup = await plugin.setup(boundContext);
 

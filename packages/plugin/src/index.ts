@@ -86,3 +86,6 @@ export function isPlugin(value: unknown): value is Plugin {
   const p = value as Record<string, unknown>;
   return typeof p.id === "string" && p.id.length > 0 && typeof p.setup === "function";
 }
+
+// Storage backends (no import cycle: storage.ts only imports types from here)
+export { createPluginStorage, createMemoryStorage } from "./storage.js";

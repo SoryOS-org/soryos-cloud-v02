@@ -4,6 +4,7 @@ import { createPluginContext } from "../src/host";
 import { resolvePluginEntry, loadPlugin, unloadPlugin } from "../src/loader";
 import { toolRegistry, ToolExecutor } from "@soryos/tool";
 import * as fs from "node:fs/promises";
+import * as fsSync from "node:fs";
 import * as path from "node:path";
 
 // Mock the tool registry
@@ -142,5 +143,88 @@ describe("@soryos/plugin", () => {
     
     await unloadPlugin(result);
     expect(result.cleanup).toHaveBeenCalled();
+  });
+});
+
+describe("@soryos/plugin storage backend", () => {
+  it("persists get/set/remove/scan to disk (real filesystem)", async () => {
+    const { createPluginStorage } = await import("../src/storage");
+    const tempDir = await fs.mkdtemp(path.join(__dirname, "temp-storage-"));
+    try {
+      const storage = createPluginStorage("test-plugin", tempDir);
+
+      // Initially empty
+      expect(await storage.scan()).toEqual([]);
+      expect(await storage.get("missing")).toBeNull();
+
+      // set + get round-trip
+      await storage.set("config", { theme: "dark", retries: 3 });
+      expect(await storage.get("config")).toEqual({ theme: "dark", retries: 3 });
+      expect(await storage.scan()).toEqual(["config"]);
+
+      // Physically written to disk
+      const file = path.join(tempDir, "test-plugin.json");
+      expect(fsSync.existsSync(file)).toBe(true);
+      const raw = JSON.parse(fsSync.readFileSync(file, "utf8"));
+      expect(raw.config).toEqual({ theme: "dark", retries: 3 });
+
+      // remove
+      await storage.remove("config");
+      expect(await storage.get("config")).toBeNull();
+      expect(await storage.scan()).toEqual([]);
+      // Empty namespace file is cleaned up
+      expect(fsSync.existsSync(file)).toBe(false);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates storage per namespace", async () => {
+    const { createPluginStorage } = await import("../src/storage");
+    const tempDir = await fs.mkdtemp(path.join(__dirname, "temp-ns-"));
+    try {
+      const a = createPluginStorage("plugin-a", tempDir);
+      const b = createPluginStorage("plugin-b", tempDir);
+
+      await a.set("key", "value-a");
+      await b.set("key", "value-b");
+
+      expect(await a.get("key")).toBe("value-a");
+      expect(await b.get("key")).toBe("value-b");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("memory storage works without touching disk", async () => {
+    const { createMemoryStorage } = await import("../src/storage");
+    const mem = createMemoryStorage();
+    await mem.set("k", 42);
+    expect(await mem.get("k")).toBe(42);
+    expect(await mem.scan()).toEqual(["k"]);
+    await mem.remove("k");
+    expect(await mem.get("k")).toBeNull();
+  });
+
+  it("plugin context uses filesystem storage when namespace provided", async () => {
+    const { createPluginContext } = await import("../src/host");
+    const ctx = createPluginContext(undefined, "ctx-test-plugin");
+    // Default root is cwd/.soryos/plugin-storage — verify real persistence
+    await ctx.storage.set("probe", "persisted");
+    expect(await ctx.storage.get("probe")).toBe("persisted");
+    await ctx.storage.remove("probe");
+    // Cleanup: ensure no leftover file
+    const file = path.join(process.cwd(), ".soryos/plugin-storage/ctx-test-plugin.json");
+    expect(fsSync.existsSync(file)).toBe(false);
+  });
+
+  it("plugin context uses isolated memory storage without namespace", async () => {
+    const { createPluginContext } = await import("../src/host");
+    const ctx = createPluginContext();
+    await ctx.storage.set("k", "v");
+    expect(await ctx.storage.get("k")).toBe("v");
+    // Not written to disk
+    const file = path.join(process.cwd(), ".soryos/plugin-storage/default.json");
+    expect(fsSync.existsSync(file)).toBe(false);
   });
 });

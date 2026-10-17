@@ -21,9 +21,18 @@ import type {
   PluginBusEvent,
   Registration,
 } from "./index.js";
+import { createPluginStorage, createMemoryStorage } from "./storage.js";
 
-/** Create a PluginContext bound to Soryos's registries. */
-export function createPluginContext(session?: SessionData): PluginContext {
+/**
+ * Create a PluginContext bound to Soryos's registries.
+ * @param session Optional session data exposed to plugins.
+ * @param storageNamespace Plugin id — enables per-plugin filesystem storage
+ *   at `.soryos/plugin-storage/<id>.json`. Omit for isolated in-memory storage.
+ */
+export function createPluginContext(
+  session?: SessionData,
+  storageNamespace?: string,
+): PluginContext {
     const toolDomain: PluginToolDomain = {
       add(definition, handler) {
         toolRegistry.add(definition);
@@ -90,22 +99,9 @@ export function createPluginContext(session?: SessionData): PluginContext {
     },
   };
 
-  const storageDomain: PluginStorageDomain = {
-    async get(key: string) {
-      // TODO: Implement storage backend
-      return null;
-    },
-    async set(key: string, value: unknown) {
-      // TODO: Implement storage backend
-    },
-    async remove(key: string) {
-      // TODO: Implement storage backend
-    },
-    async scan() {
-      // TODO: Implement storage backend
-      return [];
-    },
-  };
+  const storageDomain: PluginStorageDomain = storageNamespace
+    ? createPluginStorage(storageNamespace)
+    : createMemoryStorage();
 
   return {
     options: {},

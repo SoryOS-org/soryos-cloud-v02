@@ -16,7 +16,8 @@
   "dependencies": {
     "@soryos/schema": "*",
     "@soryos/bus": "*",
-    "@soryos/permissions": "*"
+    "@soryos/permissions": "*",
+    "@soryos/tool": "*"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
