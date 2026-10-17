@@ -10,9 +10,12 @@
     "@soryos/bus": "*",
     "@soryos/core": "*",
     "@soryos/execution": "*",
+    "@soryos/images": "*",
     "@soryos/permissions": "*",
     "@soryos/schema": "*",
     "@soryos/session": "*",
+    "@soryos/voice": "*",
+    "@soryos/vision": "*",
     "diff": "^9.0.0",
     "uuid": "^9.0.0"
   },

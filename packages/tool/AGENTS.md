@@ -9,7 +9,7 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - Delegate execution to the active `ExecutionProvider`.
 - Enforce the invariant: *"NO REAL ACTION = NO SUCCESS"*. Every tool MUST perform physical disk/shell actions and verify results.
 
-## Registered Tools (32 + dynamic MCP)
+## Registered Tools (35 + dynamic MCP)
 - `read_file`: Reads file content with 1-based line numbers.
 - `write_file`: Overwrites/creates pristine files on disk.
 - `edit_file`: Multi-tier matching (see below).
@@ -35,6 +35,9 @@ This package houses the **`ToolRegistry`** and **`ToolExecutor`** responsible fo
 - `session_info`: Gets information about the current session (see below).
 - `patch_file`: Applies a multi-file OpenCode-format patch (see below).
 - `question`: Asks the user interactive questions mid-run (see below).
+- `vision_analyze`: Analyzes an image with a real vision model (see below).
+- `voice_transcribe`: Transcribes an audio file from disk to text (see below).
+- `image_info`: Reads real image metadata from disk/URL (see below).
 - **MCP tools**: every connected MCP server contributes `mcp_<server>__<tool>` tools dynamically (see below).
 
 ## `patch_file` (`src/patch-tools.ts`)
@@ -70,6 +73,15 @@ ALIASES kept: `old_string`/`new_string`/`replace_all` (planner prompt compatibil
 
 ## `session_rename`, `session_move`, `models`, `session_info` (`src/opencode-tools.ts`)
 `OpenCodeTools.renameSession(sessionId, title)`: Renames a session via sessionStore. `OpenCodeTools.moveSession(sessionId, directory)`: Moves a session to another directory (validates existence + isDirectory, supports ~). `OpenCodeTools.listModels(query?, provider?, opts?)`: Searches built-in model registry with paging (`all`, `limit`, `offset`); returns `{ models, total }`. `OpenCodeTools.getSessionInfo(sessionId)`: Returns session metadata. Emits `tool.started/completed/failed` on the bus. Exported pure function `searchModels`.
+
+## `vision_analyze` (`src/vision-tools.ts`)
+`VisionTools.analyze({image, analysisType?, prompt?, provider?})`: Real image analysis via `@soryos/vision` (Gemini, OpenAI, Mistral, Anthropic). Physical I/O: local files read byte-by-byte from disk (20MB cap, magic-byte format check via `@soryos/images readImageInfo` → data URL), http(s)/data URLs passed through (provider fetches). Provider resolution `resolveVisionProvider()`: explicit → validates API key env var (`GEMINI_API_KEY`/`OPENAI_API_KEY`/`MISTRAL_API_KEY`/`ANTHROPIC_API_KEY`); auto-detect from env keys; NO FAKE: provider `local` is rejected honestly (it is a hardcoded placeholder). Pre-flight `isAvailable()` check before any network call; 130s timeout with cleared timer; empty provider response → honest error. analysisType `custom` requires a prompt. Aliases: `image` ← path/file/imageUrl/src. Category `web`, **read-only** (allowed in plan/explore). Emits bus events.
+
+## `voice_transcribe` (`src/voice-tools.ts`)
+`VoiceTools.transcribe({path, provider?, language?})`: Real speech-to-text for audio FILES on disk via `@soryos/voice`. Physical I/O: file stat + read (25MB cap, empty-file check), format inferred from extension (wav/mp3/ogg/opus/webm/pcm). `resolveVoiceProvider()`: auto-detect google (`GOOGLE_SPEECH_API_KEY`/`GOOGLE_API_KEY`) → azure (`AZURE_SPEECH_KEY`) → whisper (`WHISPER_ENDPOINT`, default `http://localhost:8000/whisper`); browser-only `web-speech-api` rejected honestly (no microphone in a server process); `aws` rejected honestly (S3 integration not implemented). Live env lookup + `TranscriberFactory.clearInstances()` retry so a cached instance never keeps a stale/missing key. 120s timeout; empty transcript → honest error. Category `web`, **read-only**. Emits bus events.
+
+## `image_info` (`src/image-tools.ts`)
+`ImageTools.info({path})`: Real image metadata (format, MIME, pixel dimensions, size, alpha) via `@soryos/images readImageInfo` — zero-dependency magic-byte + header parsing (PNG IHDR, JPEG SOF walk, GIF, WebP VP8/VP8L/VP8X, BMP; svg/tiff recognised without dimensions). Physical I/O: local file read (50MB cap) or http(s) fetch (20s timeout, content-length pre-check). Unrecognised bytes → honest "not a recognised image format" (never guesses). Category `filesystem`, **read-only**. Emits bus events.
 
 ## Interactive "Ask" Gate (`ToolExecutor.askGateDangerousTool`)
 For `DANGEROUS_TOOLS` (`shell_command`, `delete_file`, `git_commit`) in build mode, when `SessionData.confirmDangerous === true` and no persistent grant exists, the executor emits `permission.requested` and waits on `createPermissionRequest()` (30s timeout → deny-once). Decisions `allow-always`/`deny-always` persist in `SessionData.permissionGrants`. Default (confirmDangerous off) = full autonomous access per AGENTS.md. Depends on `@soryos/session` (cycle-safe) for grant persistence.

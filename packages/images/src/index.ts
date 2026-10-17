@@ -19,6 +19,9 @@ export * from './uploader';
 // Re-export processor
 export * from './processor';
 
+// Re-export server-side metadata parsing (no browser required)
+export * from './metadata';
+
 // Main exports
 import { 
   ImageUploader, 

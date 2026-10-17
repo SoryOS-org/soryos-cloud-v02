@@ -18,6 +18,9 @@ This package provides comprehensive voice input capabilities for SoryOS-Code, in
 - `src/transcriber.ts`: Multiple transcription providers
 - `src/types.ts`: Type definitions for voice operations
 
+## Integration with `@soryos/tool`
+The `voice_transcribe` tool (`packages/tool/src/voice-tools.ts`) transcribes audio FILES from disk via `getTranscriber(provider, config)`. Server-side reality: `web-speech-api` is browser-only (rejected honestly), `aws` needs unimplemented S3 integration (rejected honestly), `whisper` targets `WHISPER_ENDPOINT` (default `http://localhost:8000/whisper`), `google`/`azure` need `GOOGLE_SPEECH_API_KEY`/`AZURE_SPEECH_KEY`. The `AudioRecorder` remains browser-only (no microphone in a server process).
+
 ## Architecture
 ```
 VoiceManager

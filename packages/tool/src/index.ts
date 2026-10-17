@@ -21,6 +21,9 @@ import { OpenCodeTools } from "./opencode-tools";
 import { PatchTools } from "./patch-tools";
 import { WorktreeTools } from "./worktree-tools";
 import { CodemodeTools, DEFAULT_CODEMODE_TIMEOUT_MS } from "./codemode-tools";
+import { VisionTools } from "./vision-tools";
+import { VoiceTools } from "./voice-tools";
+import { ImageTools } from "./image-tools";
 import {
   createQuestionRequest,
   resolveQuestionRequest,
@@ -55,6 +58,12 @@ export type { McpResourceResult } from "./mcp-resource-tools";
 export type { McpResourceInfo, McpResourceTemplateInfo, McpResourceContent, McpListResourcesResult } from "./mcp-client";
 export { OpenCodeTools, searchModels } from "./opencode-tools";
 export type { OpenCodeResult, ModelInfo } from "./opencode-tools";
+export { VisionTools, resolveVisionProvider } from "./vision-tools";
+export type { VisionAnalyzeInput, VisionAnalyzeOutput } from "./vision-tools";
+export { VoiceTools, resolveVoiceProvider } from "./voice-tools";
+export type { VoiceTranscribeInput, VoiceTranscribeOutput } from "./voice-tools";
+export { ImageTools } from "./image-tools";
+export type { ImageInfoInput, ImageInfoOutput } from "./image-tools";
 
 export type { CodemodeResult } from "./codemode-tools";
 export type ToolArgs = Record<string, any>;
@@ -89,6 +98,9 @@ const ALIASES: Record<string, Record<string, string[]>> = {
   models: { query: ["search", "q"], provider: ["providerId"] },
   patch_file: { patch: ["patchText", "patch_text", "diff", "patchTextContent"] },
   question: { questions: ["prompts", "asks"] },
+  vision_analyze: { image: ["path", "file", "imageUrl", "src", "imagePath"] },
+  voice_transcribe: { path: ["file", "audio", "audioPath", "filePath"] },
+  image_info: { path: ["file", "image", "imagePath", "source"] },
 };
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -569,6 +581,65 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ["questions"],
     },
   },
+  {
+    id: "vision_analyze",
+    name: "vision_analyze",
+    description:
+      "Analyze an image with a vision model (Gemini, OpenAI, Mistral, or Anthropic). The image can be a local file path, an http(s) URL, or a data: URL. Use this to read screenshots, diagrams, mockups, or any image in the workspace — e.g. to extract text (ocr), describe UI (description), detect objects, or answer a custom question about the image. Requires the matching vision API key env var (GEMINI_API_KEY, OPENAI_API_KEY, MISTRAL_API_KEY, or ANTHROPIC_API_KEY).",
+    category: "web",
+    parameters: {
+      type: "object",
+      properties: {
+        image: { type: "string", description: "Image source: local file path, http(s) URL, or data: URL." },
+        analysisType: {
+          type: "string",
+          description: "What to extract from the image (default: description).",
+          enum: ["description", "ocr", "objects", "text", "layout", "colors", "faces", "custom"],
+        },
+        prompt: { type: "string", description: "Custom prompt. Required when analysisType is 'custom'." },
+        provider: {
+          type: "string",
+          description: "Vision provider (auto-detected from API key env vars when omitted).",
+          enum: ["gemini", "openai", "mistral", "anthropic"],
+        },
+      },
+      required: ["image"],
+    },
+  },
+  {
+    id: "voice_transcribe",
+    name: "voice_transcribe",
+    description:
+      "Transcribe an audio file (wav, mp3, ogg, opus, webm) from the workspace to text using a real speech-to-text provider (Whisper, Google Speech-to-Text, or Azure Speech). Reads the file from disk physically. Requires a configured provider: WHISPER_ENDPOINT (defaults to http://localhost:8000/whisper), GOOGLE_SPEECH_API_KEY, or AZURE_SPEECH_KEY.",
+    category: "web",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path to the audio file to transcribe." },
+        provider: {
+          type: "string",
+          description: "Transcription provider (auto-detected from env when omitted; default: whisper).",
+          enum: ["whisper", "google", "azure"],
+        },
+        language: { type: "string", description: "BCP-47 language tag of the audio (e.g. en-US, fr-FR)." },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    id: "image_info",
+    name: "image_info",
+    description:
+      "Read the real metadata of an image file (or image URL): format, MIME type, pixel dimensions, file size, alpha channel. Parsed from the actual file bytes on disk — use this before processing or referencing an image asset.",
+    category: "filesystem",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path to the local image file, or an http(s) image URL." },
+      },
+      required: ["path"],
+    },
+  },
 ];
 
 export class ToolRegistry {
@@ -616,6 +687,9 @@ export interface ToolBundle {
   opencode: OpenCodeTools;
   patch: PatchTools;
   worktree: WorktreeTools;
+  vision: VisionTools;
+  voice: VoiceTools;
+  image: ImageTools;
 }
 
 export interface HandlerContext {
@@ -637,6 +711,9 @@ export interface HandlerContext {
   opencode: OpenCodeTools;
   patch: PatchTools;
   worktree: WorktreeTools;
+  vision: VisionTools;
+  voice: VoiceTools;
+  image: ImageTools;
 }
 
 export type ToolHandler = (args: ToolArgs, ctx: HandlerContext) => Promise<ToolExecutionResult>;
@@ -1085,6 +1162,46 @@ const HANDLERS: Record<string, ToolHandler> = {
     const todos = ctx.session.todos ?? [];
     return normalizeSuccess("todo_read", true, JSON.stringify(todos, null, 2), { count: todos.length }, true);
   },
+  vision_analyze: async (args, ctx) => {
+    const image = asString(requireValue(args, "vision_analyze", "image"), "image");
+    const analysisType = pick(args, "vision_analyze", "analysisType");
+    const prompt = pick(args, "vision_analyze", "prompt");
+    const provider = pick(args, "vision_analyze", "provider");
+    const r = await ctx.vision.analyze({
+      image,
+      analysisType: typeof analysisType === "string" && analysisType ? analysisType : undefined,
+      prompt: typeof prompt === "string" && prompt ? prompt : undefined,
+      provider: typeof provider === "string" && provider ? provider : undefined,
+      sessionId: ctx.session.id,
+    });
+    if (!r.success) {
+      return { toolName: "vision_analyze", output: r.error ?? "vision_analyze failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("vision_analyze", true, r.output ?? "", r.metadata);
+  },
+  voice_transcribe: async (args, ctx) => {
+    const path = asString(requireValue(args, "voice_transcribe", "path"), "path");
+    const provider = pick(args, "voice_transcribe", "provider");
+    const language = pick(args, "voice_transcribe", "language");
+    const r = await ctx.voice.transcribe({
+      path,
+      provider: typeof provider === "string" && provider ? provider : undefined,
+      language: typeof language === "string" && language ? language : undefined,
+      sessionId: ctx.session.id,
+    });
+    if (!r.success) {
+      return { toolName: "voice_transcribe", output: r.error ?? "voice_transcribe failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("voice_transcribe", true, r.output ?? "", r.metadata);
+  },
+  image_info: async (args, ctx) => {
+    const path = asString(requireValue(args, "image_info", "path"), "path");
+    const r = await ctx.image.info({ path });
+    if (!r.success) {
+      return { toolName: "image_info", output: r.error ?? "image_info failed", isError: true, metadata: r.metadata };
+    }
+    return normalizeSuccess("image_info", true, r.output ?? "", r.metadata);
+  },
 };
 
 export class ToolExecutor {
@@ -1127,6 +1244,9 @@ export class ToolExecutor {
         opencode: new OpenCodeTools(),
         patch: new PatchTools(provider),
         worktree: new WorktreeTools(provider),
+        vision: new VisionTools(),
+        voice: new VoiceTools(),
+        image: new ImageTools(),
       };
       this.bundles.set(provider, bundle);
     }

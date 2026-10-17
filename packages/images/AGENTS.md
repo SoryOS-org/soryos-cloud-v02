@@ -16,7 +16,11 @@ This package provides comprehensive image input capabilities for SoryOS-Code, in
 - `src/index.ts`: Main exports and ImageManager class
 - `src/uploader.ts`: ImageUploader class with multiple upload sources
 - `src/processor.ts`: ImageProcessor class with image manipulation
+- `src/metadata.ts`: Server-side `readImageInfo`/`detectImageFormat` (magic bytes + header parsing, NO browser required)
 - `src/types.ts`: Type definitions for image operations
+
+## Integration with `@soryos/tool`
+The `image_info` tool (`packages/tool/src/image-tools.ts`) reads images from disk/URL and parses them with `readImageInfo` — the only part of this package that runs in a server process. The `ImageProcessor` (canvas) and `ImageUploader` (FileReader/URL.createObjectURL) remain browser-only and are NOT usable from agent tools.
 
 ## Architecture
 ```

@@ -71,6 +71,9 @@ export class PermissionsManager {
     "plan_exit",
     "websearch",
     "webfetch",
+    "vision_analyze",
+    "voice_transcribe",
+    "image_info",
   ]);
 
   private static readonly WRITE_TOOLS = new Set([

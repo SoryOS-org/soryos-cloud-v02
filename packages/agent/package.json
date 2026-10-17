@@ -13,14 +13,12 @@
     "@soryos/execution": "*",
     "@soryos/filesystem": "*",
     "@soryos/git": "*",
-    "@soryos/images": "*",
     "@soryos/jobs": "*",
     "@soryos/permissions": "*",
     "@soryos/provider": "*",
     "@soryos/schema": "*",
     "@soryos/session": "*",
     "@soryos/tool": "*",
-    "@soryos/voice": "*",
     "@soryos/workspace": "*"
   },
   "devDependencies": {

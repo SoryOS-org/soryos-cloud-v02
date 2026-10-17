@@ -24,12 +24,13 @@ const nextConfig: NextConfig = {
     "@soryos/sandbox",
     "@soryos/terminal",
     "@soryos/github",
-    "@soryos/database",
     "@soryos/jobs",
     "@soryos/shared",
     "@soryos/voice",
     "@soryos/vision",
     "@soryos/images",
+    "@soryos/plugin",
+    "@soryos/theme",
   ],
   async redirects() {
     return [];

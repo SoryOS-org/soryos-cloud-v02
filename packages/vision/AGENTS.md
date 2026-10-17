@@ -24,6 +24,9 @@ This package provides comprehensive Vision AI capabilities for SoryOS-Code. It e
 - `src/providers.ts`: Multi-provider implementations (Gemini, OpenAI, Mistral, Anthropic, Local)
 - `src/analyzer.ts`: Specialized analyzers (OCR, Objects, Layout, Colors, Faces, Mockup)
 
+## Integration with `@soryos/tool`
+The `vision_analyze` tool (`packages/tool/src/vision-tools.ts`) is the agent-facing entry point: it resolves local files/URLs into data URLs and calls `initializeVision(provider).analyze(...)`. Provider keys come from env (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY`). WARNING: `LocalVisionProvider` is a hardcoded placeholder (fake success) — the tool deliberately rejects `provider: "local"` (NO FAKE EXECUTION rule).
+
 ## Architecture
 ```
 VisionManager

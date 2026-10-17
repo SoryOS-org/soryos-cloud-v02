@@ -51,7 +51,7 @@ graph TB
         bus["@soryos/bus<br/>Event Bus"]
         permissions["@soryos/permissions<br/>Role-Based Security"]
         execution["@soryos/execution<br/>Physical Command/File Execution"]
-        tool["@soryos/tool<br/>ToolRegistry + ToolExecutor<br/>32 built-in tools + MCP"]
+        tool["@soryos/tool<br/>ToolRegistry + ToolExecutor<br/>35 built-in tools + MCP"]
         agent["@soryos/agent<br/>Multi-Turn Agent Runtime"]
         workspace["@soryos/workspace<br/>ActiveWorkspace State"]
         session["@soryos/session<br/>Session Store & History"]
@@ -147,7 +147,7 @@ graph LR
     end
 
     subgraph SoryOSRegistries["SoryOS Registries"]
-        toolRegistry["ToolRegistry<br/>32+ tools"]
+        toolRegistry["ToolRegistry<br/>35+ tools"]
         permManager["permissionsManager<br/>Role-based access"]
         eventBus["EventBus<br/>Central event stream"]
     end
@@ -301,12 +301,15 @@ soryos-code/
 │   ├── @soryos/bus          EventBus streaming
 │   ├── @soryos/permissions  Role-based security
 │   ├── @soryos/execution    Physical command/file execution
-│   ├── @soryos/tool         ToolRegistry + ToolExecutor (32+ tools)
+│   ├── @soryos/tool         ToolRegistry + ToolExecutor (35+ tools)
 │   ├── @soryos/agent        Multi-turn agent runtime
+│   ├── @soryos/vision       Multi-provider vision analysis
+│   ├── @soryos/voice        Speech-to-text transcription
+│   ├── @soryos/images       Image upload, processing & metadata
 │   ├── @soryos/plugin       Promise-based plugin API
 │   ├── @soryos/theme        OKLCH theme system
 │   ├── @soryos/jobs         Inngest background job queue
-│   └── ...                  (32 packages total)
+│   └── ...                  (31 packages total)
 ├── data/                    SQLite database (created at runtime)
 ├── .env.example
 ├── Makefile
@@ -341,7 +344,7 @@ cd apps/api/src && PYTHONPATH=. ../venv/bin/python -m soryos-code.agent.self_che
 | Session Management | Convex | `@soryos/session` + SQLite | ✅ Complete |
 | Plugin System | @opencode/plugin | `@soryos/plugin` (Promise API) | ✅ Complete |
 | Theme System | @opencode/theme | `@soryos/theme` (OKLCH) | ✅ Complete |
-| 32+ Tools | opencode tools | `@soryos/tool` registry | ✅ Complete |
+| 35+ Tools | opencode tools | `@soryos/tool` registry | ✅ Complete |
 | Multi-AI Provider | ❌ (Claude only) | ✅ Claude, Cursor, Gemini | ✅ Enhanced |
 | Template System | ✅ | ✅ Expo, Next.js, FastAPI+Next.js | ✅ Enhanced |
 | Auto-Pause/Resume | ✅ | ✅ Enhanced with session tokens | ✅ Enhanced |
