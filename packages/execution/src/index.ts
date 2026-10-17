@@ -86,8 +86,8 @@ export abstract class CloudExecutionProvider implements ExecutionProvider {
     this.workspaceDir = "";
   }
 
-  readonly id: ProviderId = this.providerId;
-  readonly name: string = this.providerName;
+  get id(): ProviderId { return this.providerId; }
+  get name(): string { return this.providerName; }
 
   /**
    * Check if provider is properly configured
@@ -427,8 +427,6 @@ export class LocalExecutionProvider implements ExecutionProvider {
  * Requires E2B_API_KEY to be configured
  */
 export class E2BExecutionProvider extends CloudExecutionProvider {
-  readonly id: ProviderId = "e2b";
-  readonly name = "E2B Cloud Sandbox";
   readonly type = "cloud" as const;
 
   constructor() {
@@ -541,8 +539,6 @@ export class E2BExecutionProvider extends CloudExecutionProvider {
  * Requires VERCEL_TOKEN to be configured
  */
 export class VercelExecutionProvider extends CloudExecutionProvider {
-  readonly id: ProviderId = "vercel";
-  readonly name = "Vercel Sandbox";
   readonly type = "cloud" as const;
 
   constructor() {
@@ -653,8 +649,6 @@ export class VercelExecutionProvider extends CloudExecutionProvider {
  * Requires GITHUB_TOKEN to be configured
  */
 export class GitHubCodespacesExecutionProvider extends CloudExecutionProvider {
-  readonly id: ProviderId = "github-codespaces";
-  readonly name = "GitHub Codespaces";
   readonly type = "cloud" as const;
 
   constructor() {
@@ -766,8 +760,6 @@ export class GitHubCodespacesExecutionProvider extends CloudExecutionProvider {
  * It uses git operations to read/write files
  */
 export class GitHubRepositoryExecutionProvider extends CloudExecutionProvider {
-  readonly id: ProviderId = "github-repository";
-  readonly name = "GitHub Repository";
   readonly type = "cloud" as const;
 
   constructor() {
@@ -938,8 +930,6 @@ export class GitHubRepositoryExecutionProvider extends CloudExecutionProvider {
  * Requires GCP credentials to be configured
  */
 export class GoogleCloudRunExecutionProvider extends CloudExecutionProvider {
-  readonly id: ProviderId = "google-cloud-run";
-  readonly name = "Google Cloud Run";
   readonly type = "container" as const;
 
   constructor() {

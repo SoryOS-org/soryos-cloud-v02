@@ -158,12 +158,6 @@
       "@soryos/github/*": [
         "../../packages/github/src/*"
       ],
-      "@soryos/database": [
-        "../../packages/database/src"
-      ],
-      "@soryos/database/*": [
-        "../../packages/database/src/*"
-      ],
       "@soryos/jobs": [
         "../../packages/jobs/src"
       ],
@@ -205,6 +199,18 @@
       ],
       "@soryos/platform/*": [
         "../../packages/platform/src/*"
+      ],
+      "@soryos/plugin": [
+        "../../packages/plugin/src"
+      ],
+      "@soryos/plugin/*": [
+        "../../packages/plugin/src/*"
+      ],
+      "@soryos/theme": [
+        "../../packages/theme/src"
+      ],
+      "@soryos/theme/*": [
+        "../../packages/theme/src/*"
       ]
     }
   },

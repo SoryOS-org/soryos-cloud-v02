@@ -160,13 +160,18 @@ async function runEngineVerification() {
     console.log("❌ 9/10 Dev Runner: ERROR", err);
   }
 
-  // 10. Database Package
+  // 10. Plugin System
   try {
-    const { schema } = await import("@soryos/database").catch(() => ({ schema: null } as any));
-    console.log("✅ 10/10 Database Subsystem: PASSED (Convex schema & subscriptions ready)");
-    passed++;
+    const { define, isPlugin } = await import("@soryos/plugin");
+    const testPlugin = define({ id: "engine-test", setup: () => {} });
+    if (isPlugin(testPlugin) && testPlugin.id === "engine-test") {
+      console.log("✅ 10/10 Plugin System: PASSED (Promise-based plugin API ready)");
+      passed++;
+    } else {
+      console.log("❌ 10/10 Plugin System: FAILED");
+    }
   } catch (err) {
-    console.log("❌ 10/10 Database Subsystem: ERROR", err);
+    console.log("❌ 10/10 Plugin System: ERROR", err);
   }
 
   console.log("\n=======================================================");

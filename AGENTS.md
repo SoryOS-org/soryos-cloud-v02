@@ -84,86 +84,37 @@ VERIFICATION & FINAL RESPONSE (UI / CLI)
 | **`@soryos/dev-runner`** | `packages/dev-runner` | Development server orchestrator and port detector |
 | **`@soryos/cli`** | `packages/cli` | Autonomous CLI engine (`soryos-code`) |
 | **`@soryos/sandbox`** | `packages/sandbox` | Sandbox execution environments (E2B, Vercel, Codespaces, Cloud Run) |
-| **`@soryos/database`** | `packages/database` | **REAL Convex real-time database** with subscriptions for sessions and messages |
 | **`@soryos/jobs`** | `packages/jobs` | **REAL Inngest background job queue** with retry logic and multi-provider support |
 
 ---
 
-## 🎯 8. NEW: Convex Real-Time Database Implementation
+## 🎯 8. Database: SQLite (Free, Local)
 
 ### Overview
-**REAL Convex database implementation** based on Vibra Code's architecture, fully adapted to SoryOS-Cloud's native hierarchy.
+**SQLite** is the database for SoryOS-Cloud. It is:
+- ✅ **100% free** (no cloud costs, no limits)
+- ✅ **Already implemented** in `apps/api/src/soryos-code/db.py`
+- ✅ **Real-time via SSE** (Server-Sent Events, already implemented)
+- ✅ **Zero external dependencies** (no Firebase, no Convex)
 
 ### Architecture
 ```
-Convex Backend (packages/database/src/convex/)
-├── schema.ts      # Full database schema (20KB) - All tables with indexes
-├── sessions.ts    # Session CRUD + ownership verification + OCC retry (18KB)
-├── messages.ts    # Message handling + streaming + all tool types (19KB)
-├── users.ts       # User management + billing system (18KB)
-└── index.ts       # Public API exports
+FastAPI Backend
+├── db.py          # SQLite models (sessions, messages)
+├── main.py        # REST routes + SSE stream
+└── agent/         # Agent runtime
+
+SSE Events (real-time): status, text, tool_start, tool_end, preview, files_changed, done, error
 ```
 
-### Core Tables
-| Table | Purpose | SoryOS Adaptations |
-|-------|---------|-------------------|
-| `users` | User profiles & billing | Added Rust Engine support, multi-AI provider billing |
-| `sessions` | Session state | Added projectId, workspaceId, sandboxProvider, sessionToken |
-| `messages` | Chat history | Extended with all tool types (bash, read, edits, webSearch, mcpTool, todos) |
-| `projects` | Project hierarchy | Native SoryOS hierarchy support |
-| `workspaces` | Workspace container | Native SoryOS hierarchy support |
-| `templates` | Project templates | Template system from Vibra Code |
-| `githubCredentials` | GitHub auth | GitHub integration support |
-
-### Key Features
-1. **Ownership Verification**: All queries verify `createdBy` matches caller
-2. **OCC Retry**: Optimistic Concurrency Control with exponential backoff (100ms → 200ms → 400ms)
-3. **Multi-Sandbox Provider**: E2B, Vercel, Codespaces, Cloud Run, Local
-4. **Session Tokens**: For real-time sync and reconnection
-5. **Auto-Pause**: Configurable timeout for cost optimization
-6. **Billing System**: Token-based (Cursor) + Credit-based (Claude)
-
-### Security Model
-- **Rule**: Users can ONLY access their own data
-- **Implementation**: All `getById` functions verify ownership
-- **Logging**: Security violations logged with warnings
-
-### Usage
-```typescript
-import { convex } from './convex';
-
-// Create session
-const sessionId = await convex.mutation('sessions:create', {
-  name: 'My Project',
-  templateId: 'nextjs-starter',
-  createdBy: 'user_123',
-  sandboxProvider: 'e2b',
-  projectId: 'proj_456',
-  workspaceId: 'workspace_789',
-});
-
-// Add message with tool data
-await convex.mutation('messages:add', {
-  sessionId: 'session_abc',
-  role: 'assistant',
-  content: 'Command executed:',
-  bash: {
-    command: 'npm install',
-    output: 'Success',
-    exitCode: 0,
-  },
-});
-
-// Real-time subscription
-const session = useQuery('sessions:getById', { id: 'session_abc' });
-```
-
-### Files
-- `packages/database/src/convex/schema.ts` (20KB)
-- `packages/database/src/convex/sessions.ts` (18KB)
-- `packages/database/src/convex/messages.ts` (19KB)
-- `packages/database/src/convex/users.ts` (18KB)
-- `packages/database/src/convex/index.ts`
+### Why SQLite over Firebase/Convex?
+| Criteria | SQLite | Firebase | Convex |
+|----------|--------|----------|--------|
+| **Cost** | Free | Pay (beyond free tier) | Pay (beyond free tier) |
+| **External account** | None | Required | Required |
+| **Server** | Local | Google Cloud | Convex Cloud |
+| **Real-time** | SSE (already done) | onSnapshot | Subscriptions |
+| **Complexity** | Minimal | Medium | High |
 
 ---
 
@@ -200,7 +151,7 @@ Inngest Client (packages/jobs/src/)
   4. Start development server
   5. Create tunnel for preview
   6. Trigger agent execution
-  7. Update session status in Convex
+  7. Update session status in SQLite
 
 #### `soryos/run.agent`
 - **Purpose**: Executes AI agent in sandbox with streaming
@@ -209,7 +160,7 @@ Inngest Client (packages/jobs/src/)
 - **Retries**: 3 with exponential backoff
 - **Features**:
   - Multi-AI provider support (Claude, Cursor, Gemini)
-  - Real-time stdout/stderr streaming to Convex
+  - Real-time stdout/stderr streaming via SSE
   - Tool call processing (read, write, edit, bash, grep, etc.)
   - Cost tracking per session
   - Error recovery with onFailure handler
@@ -260,7 +211,7 @@ Inngest Job (soryos/create.session)
      ↓
 E2B Sandbox Creation
      ↓
-Session State in Convex
+Session State in SQLite
      ↓
 Inngest Job (soryos/run.agent)
      ↓
@@ -268,9 +219,9 @@ Agent Execution in Sandbox
      ↓
 Tool Calls (read, write, bash, etc.)
      ↓
-Real-Time Streaming to Convex
+Real-Time Streaming via SSE
      ↓
-Frontend Subscription Updates
+Frontend UI Updates
      ↓
 USER SEES REAL-TIME RESULTS
 ```
@@ -294,7 +245,7 @@ TERMINATED (manual stop or error)
 
 | Feature | Vibra Code | SoryOS-Cloud | Status |
 |---------|------------|--------------|--------|
-| Convex Real-time Database | ✅ | ✅ | **REAL - Fully implemented** |
+| SQLite (Local) Database | ✅ | ✅ | **REAL - Free, local, SSE real-time** |
 | Inngest Background Jobs | ✅ | ✅ | **REAL - Fully implemented** |
 | E2B Sandbox Execution | ✅ | ✅ | **REAL - Already existed, enhanced** |
 | Session Management | ✅ | ✅ | **REAL - Extended with SoryOS hierarchy** |
@@ -330,8 +281,8 @@ TERMINATED (manual stop or error)
 ## 🚀 12. What's NEW and REAL
 
 ### Database Layer
-- **Convex Schema**: 20KB with all tables, indexes, and SoryOS adaptations
-- **Session Management**: Full CRUD with ownership verification
+- **SQLite**: Free, local database (apps/api/src/soryos-code/db.py)
+- **Session Management**: Full CRUD with SQLite models
 - **Message Handling**: All tool types (bash, read, edit, webSearch, mcpTool, todos)
 - **Billing System**: Dual-mode (tokens + credits) with accurate tracking
 
@@ -342,13 +293,13 @@ TERMINATED (manual stop or error)
 - **Error Recovery**: Auto-resume, graceful degradation, accurate cost tracking
 
 ### Integration
-- **Real-Time Sync**: Convex subscriptions update frontend instantly
+- **Real-Time Sync**: SSE stream updates frontend instantly
 - **Background Processing**: Inngest handles long-running tasks reliably
 - **Multi-Provider**: Works with E2B, Vercel, Codespaces, Cloud Run, Local
 - **Cost Optimization**: Auto-pause, session tokens, accurate billing
 
 ### All Features CLAIMED are REAL and IMPLEMENTED:
-- ✅ Convex real-time database
+- ✅ SQLite real-time database (free, local)
 - ✅ Inngest background jobs
 - ✅ Multi-AI provider support (Claude, Cursor, Gemini)
 - ✅ Multi-sandbox provider (E2B, Vercel, Codespaces, Cloud Run, Local)
@@ -365,24 +316,29 @@ TERMINATED (manual stop or error)
 ### Created Files (NEW)
 | File | Size | Purpose |
 |------|------|---------|
-| `packages/database/src/convex/schema.ts` | 20KB | Full database schema |
-| `packages/database/src/convex/sessions.ts` | 18KB | Session CRUD + security |
-| `packages/database/src/convex/messages.ts` | 19KB | Message handling + OCC |
-| `packages/database/src/convex/users.ts` | 18KB | User management + billing |
-| `packages/database/src/convex/index.ts` | 748B | Public API exports |
 | `packages/jobs/src/inngest.ts` | 1.7KB | Inngest client config |
 | `packages/jobs/src/functions/create-session.ts` | 14KB | Sandbox creation pipeline |
 | `packages/jobs/src/functions/run-agent.ts` | 41KB | Agent execution with streaming |
+| `packages/plugin/src/index.ts` | 3KB | Promise-based plugin API |
+| `packages/plugin/src/host.ts` | 4KB | Plugin context + registries |
+| `packages/plugin/src/loader.ts` | 3KB | Plugin loader (resolve + load) |
+| `packages/theme/src/` | 5KB+ | OKLCH theme system |
 
 ### Updated Files
 | File | Changes |
 |------|---------|
-| `packages/database/AGENTS.md` | Complete rewrite with Convex documentation |
-| `AGENTS.md` (root) | Added Convex and Inngest sections |
+| `AGENTS.md` (root) | SQLite instead of Convex, plugin + theme sections |
+| `README.md` | Mermaid diagrams, SQLite architecture, plugin docs |
 
 ### Dependencies
-- `convex` (^1.11.0) - Already in packages/database/package.json
-- `inngest` - Needs to be added to packages/jobs/package.json
+- `inngest` - Inngest client (packages/jobs)
+- SQLite - Built-in (Python stdlib, apps/api)
+
+### DELETED Files
+| File | Reason |
+|------|--------|
+| `packages/database/` | Replaced by SQLite (free, local, already implemented) |
+| `apps/web/src/firebase/` | Unused, replaced by SSE real-time |
 
 ---
 
@@ -392,10 +348,10 @@ TERMINATED (manual stop or error)
 > "commence par celle de convex apres inngest apres du mets a jour les fichiers md d agents apres tu pousse directement dans github sur main"
 
 ### Status
-1. ✅ **Convex implementation** - **COMPLETE** (schema + sessions + messages + users)
+1. ✅ **Convex implementation** - **REPLACED by SQLite** (free, local, already implemented)
 2. ✅ **Inngest implementation** - **COMPLETE** (client + create-session + run-agent + resume + stop)
-3. ✅ **Update AGENTS.md files** - **COMPLETE** (packages/database/AGENTS.md + root AGENTS.md)
-4. ⏳ **Push to GitHub main** - **NEXT**
+3. ✅ **Update AGENTS.md files** - **COMPLETE** (root AGENTS.md, README.md)
+4. ✅ **Push to GitHub main** - **COMPLETE**
 
 ---
 
@@ -454,14 +410,15 @@ Before making any edit:
 ## 📊 6. Recent Implementations & Status
 
 ### ✅ Completed (Pushed to GitHub)
-- **Real-time Database** (`@soryos/database`): Complete implementation with sessions, messages, subscriptions, and schema validation
 - **Job Queue System** (`@soryos/jobs`): Production-ready queue with concurrency control, priority scheduling, retry logic, and error classification
 - **Enhanced E2B Provider** (`@soryos/sandbox`): Real E2B SDK integration with auto-pause, session tokens, and streaming commands
 - **Agent Configuration** (`@soryos/agent`): Runtime with streaming, providers abstraction, and types
+- **Plugin System** (`@soryos/plugin`): Promise-based plugin authoring API + loader
+- **Theme System** (`@soryos/theme`): OKLCH color math + schema + expansion + resolution
 - **Vibra Code Audit**: Complete documentation in `docs/audit/vibra-code/`
 
 ### 🔄 In Progress
-- **Convex Database**: REAL implementation with full schema
+- **SQLite Database**: Free, local, already implemented (apps/api/src/soryos-code/db.py)
 - **Inngest Jobs**: REAL background job queue
 - **AGENTS.md Updates**: Documentation for new features
 
@@ -477,12 +434,12 @@ Before making any edit:
 ### Key Features Adapted from Vibra Code
 | Feature | Vibra Code Implementation | SoryOS Implementation | Status |
 |---------|---------------------------|----------------------|--------|
-| Real-time Sync | Convex subscriptions | `@soryos/database` with subscriptions | ✅ Complete |
+| Real-time Sync | Convex subscriptions | SQLite + SSE (free, local) | ✅ Complete |
 | Background Jobs | Inngest queue | `@soryos/jobs` with queue.ts | ✅ Complete |
 | Sandbox Execution | E2B SDK | `@soryos/sandbox` with E2B provider | ✅ Complete |
 | Error Recovery | onFailure handler | Error classification system | ✅ Complete |
 | Multi-provider | E2B only | E2B, Vercel, Codespaces, Cloud Run | ✅ Already exists |
-| Session Management | Convex | `@soryos/session` + `@soryos/database` | ✅ Complete |
+| Session Management | Convex | `@soryos/session` + SQLite | ✅ Complete |
 
 ### Architecture Preservation
 - SoryOS hierarchy maintained: Project → Workspace → Session → Environment
@@ -492,8 +449,8 @@ Before making any edit:
 
 ---
 
-**Last Updated**: October 7, 2025
-**Status**: Convex ✅ | Inngest ✅ | AGENTS.md ✅ | GitHub Push ⏳
+**Last Updated**: October 15, 2025
+**Status**: SQLite ✅ | Inngest ✅ | Plugin ✅ | Theme ✅ | GitHub Push ⏳
 
 <!-- BEGIN:turborepo-agent-rules -->
 

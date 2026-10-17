@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/theme/theme-context";
-import { FirebaseClientProvider } from "@/firebase";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,7 +24,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: "SoryOS-Code",
-  description: "AI agent workbench with Firebase real-time sync.",
+  description: "AI agent workbench with real-time sync.",
 };
 
 export default function RootLayout({
@@ -39,9 +38,7 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} antialiased h-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]`}
       >
-        <FirebaseClientProvider>
-          <ThemeProvider>{children}</ThemeProvider>
-        </FirebaseClientProvider>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );
