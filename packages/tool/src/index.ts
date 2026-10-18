@@ -51,7 +51,15 @@ export { WebSearchTool } from "./websearch-tools";
 export type { WebSearchResult, WebSearchOutput } from "./websearch-tools";
 export { FileDiffTool, computeFileDiff } from "./file-diff-tools";
 export type { FileDiffResult, FileDiffInfo } from "./file-diff-tools";
-export { SkillTool, BUILTIN_SKILLS, getSkillDefinition, listSkills, searchSkills } from "./skill-tools";
+export {
+  SkillTool,
+  BUILTIN_SKILLS,
+  getSkillDefinition,
+  listSkills,
+  searchSkills,
+  skillDirectoryCandidates,
+  resolveSkillFile,
+} from "./skill-tools";
 export type { SkillDefinition, SkillLoadResult } from "./skill-tools";
 export { McpResourceTools } from "./mcp-resource-tools";
 export type { McpResourceResult } from "./mcp-resource-tools";

@@ -24,8 +24,6 @@ const nextConfig: NextConfig = {
     "@soryos/sandbox",
     "@soryos/terminal",
     "@soryos/github",
-    "@soryos/jobs",
-    "@soryos/shared",
     "@soryos/voice",
     "@soryos/vision",
     "@soryos/images",

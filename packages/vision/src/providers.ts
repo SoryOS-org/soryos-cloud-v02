@@ -948,40 +948,41 @@ export class LocalVisionProvider extends BaseVisionProvider {
   }
 
   async analyze(options: VisionAnalysisOptions): Promise<VisionAnalysisResult> {
-    const startTime = Date.now();
-
-    // Local provider returns a placeholder response
-    // In practice, this would connect to a local model
+    // NO FAKE EXECUTION: there is no real local model wired in this process.
+    // Returning a hardcoded "success" would poison the agent with invented analysis.
     return {
-      success: true,
+      success: false,
       analysisType: options.analysisType || 'description',
       taskType: options.taskType || 'describe',
       provider: 'local',
       model: 'local',
-      results: [{
-        type: 'text',
-        content: 'Local vision analysis: Image received and processed. Connect to a local vision model for full analysis.',
-      }],
-      text: 'Local vision analysis placeholder',
-      durationMs: Date.now() - startTime,
+      results: [],
+      text: '',
+      durationMs: 0,
       timestamp: Date.now(),
       sessionId: options.sessionId,
+      error:
+        'Local vision provider is not implemented: no model is served in this process. Configure a real provider (gemini, openai, mistral, anthropic) with its API key.',
     };
   }
 
-  async *streamAnalyze(options: VisionAnalysisOptions): AsyncIterable<string> {
-    yield 'Local vision streaming placeholder';
+  async *streamAnalyze(_options: VisionAnalysisOptions): AsyncIterable<string> {
+    // No real stream exists — surface the honest failure instead of fake chunks.
+    throw new Error(
+      'Local vision provider is not implemented: no model is served in this process.',
+    );
   }
 
   isAvailable(): boolean {
-    return true; // Local is always available
+    // Never claim availability without a real backend behind it.
+    return false;
   }
 
   getCapabilities() {
     return {
-      analysisTypes: ['description', 'ocr', 'objects', 'text', 'layout', 'colors', 'custom'],
-      maxImageSizeMB: 100,
-      maxTokens: 8192,
+      analysisTypes: [] as string[],
+      maxImageSizeMB: 0,
+      maxTokens: 0,
     };
   }
 }

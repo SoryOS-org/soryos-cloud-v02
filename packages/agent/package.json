@@ -13,7 +13,6 @@
     "@soryos/execution": "*",
     "@soryos/filesystem": "*",
     "@soryos/git": "*",
-    "@soryos/jobs": "*",
     "@soryos/permissions": "*",
     "@soryos/provider": "*",
     "@soryos/schema": "*",

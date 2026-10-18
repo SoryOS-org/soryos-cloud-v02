@@ -1,17 +1,19 @@
 /**
  * skill — charge des instructions de compétences spécialisées dans la conversation.
- * Les skills sont des fichiers markdown avec métadonnées YAML qui fournissent
- * des instructions contextuelles pour des tâches spécifiques.
+ * Les skills sont des fichiers markdown réels sur disque (packages/tool/skills/*.md),
+ * lus octet par octet — aucune instruction n'est simulée ou inventée à l'exécution.
  */
 
 import { globalEventBus } from "@soryos/bus";
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface SkillDefinition {
   id: string;
   name: string;
   description: string;
-  /** Path to the skill's instruction file (markdown) */
-  path: string;
   /** Optional resources associated with this skill */
   resources?: string[];
   /** Tags for categorization */
@@ -26,8 +28,9 @@ export interface SkillLoadResult {
 }
 
 /**
- * Built-in skill definitions.
- * In a full implementation, these would be loaded from disk or a registry.
+ * Built-in skill registry. The instructions body is NOT inlined here: each id
+ * maps to a real markdown file at `packages/tool/skills/<id>.md`, physically
+ * read from disk at load time.
  */
 export const BUILTIN_SKILLS: SkillDefinition[] = [
   {
@@ -35,7 +38,6 @@ export const BUILTIN_SKILLS: SkillDefinition[] = [
     name: "TypeScript Expert",
     description:
       "Expert guidance for TypeScript development including type patterns, generics, decorators, and best practices.",
-    path: "skills/typescript-expert.md",
     tags: ["typescript", "javascript", "types"],
   },
   {
@@ -43,7 +45,6 @@ export const BUILTIN_SKILLS: SkillDefinition[] = [
     name: "React Specialist",
     description:
       "Specialized knowledge for React development including hooks, performance optimization, and component patterns.",
-    path: "skills/react-specialist.md",
     tags: ["react", "frontend", "components"],
   },
   {
@@ -51,7 +52,6 @@ export const BUILTIN_SKILLS: SkillDefinition[] = [
     name: "API Design",
     description:
       "Guidelines for designing RESTful and GraphQL APIs including versioning, pagination, and error handling.",
-    path: "skills/api-design.md",
     tags: ["api", "rest", "graphql", "backend"],
   },
   {
@@ -59,7 +59,6 @@ export const BUILTIN_SKILLS: SkillDefinition[] = [
     name: "Testing Strategy",
     description:
       "Comprehensive testing strategies including unit, integration, and e2e testing patterns.",
-    path: "skills/testing-strategy.md",
     tags: ["testing", "jest", "vitest", "e2e"],
   },
   {
@@ -67,7 +66,6 @@ export const BUILTIN_SKILLS: SkillDefinition[] = [
     name: "Security Audit",
     description:
       "Security best practices for code review including OWASP top 10, authentication, and data protection.",
-    path: "skills/security-audit.md",
     tags: ["security", "owasp", "authentication"],
   },
 ];
@@ -89,6 +87,30 @@ export function searchSkills(query: string): SkillDefinition[] {
       s.description.toLowerCase().includes(lower) ||
       s.tags?.some((t) => t.toLowerCase().includes(lower))
   );
+}
+
+/** Candidate directories holding the skill markdown files, in resolution order. */
+export function skillDirectoryCandidates(): string[] {
+  const candidates: string[] = [];
+  // 1) Module-relative: <repo>/packages/tool/skills (independent of cwd)
+  try {
+    candidates.push(join(dirname(fileURLToPath(import.meta.url)), "..", "skills"));
+  } catch {
+    // import.meta unavailable (non-ESM host) — fall through to cwd candidates
+  }
+  // 2) cwd-relative (repo root or packages/tool)
+  candidates.push(join(process.cwd(), "packages", "tool", "skills"));
+  candidates.push(join(process.cwd(), "skills"));
+  return candidates.map((p) => resolve(p));
+}
+
+/** Resolve a skill's markdown file on disk, or null if no candidate exists. */
+export function resolveSkillFile(skill: SkillDefinition): string | null {
+  for (const dir of skillDirectoryCandidates()) {
+    const file = join(dir, `${skill.id}.md`);
+    if (existsSync(file)) return file;
+  }
+  return null;
 }
 
 export class SkillTool {
@@ -113,26 +135,29 @@ export class SkillTool {
       return { success: false, error: message };
     }
 
-    // In a full implementation, this would read the skill file from disk.
-    // For now, we return the skill metadata and a placeholder for the instructions.
-    const instructions = [
-      `# ${skill.name}`,
-      "",
-      `## Description`,
-      skill.description,
-      "",
-      `## Instructions`,
-      "",
-      `[Skill instructions for "${skill.name}" would be loaded from ${skill.path}]`,
-      "",
-      `Follow these specialized instructions when working on tasks related to ${skill.tags?.join(", ") ?? "this domain"}.`,
-    ].join("\n");
+    // Physical disk read of the real skill markdown file — never invented text.
+    const file = resolveSkillFile(skill);
+    if (!file) {
+      const tried = skillDirectoryCandidates().map((d) => join(d, `${skill.id}.md`));
+      const message = `Skill file for "${skill.id}" not found on disk. Tried: ${tried.join(", ")}`;
+      globalEventBus.emit("tool.failed", { toolName: "skill", error: message, callId });
+      return { success: false, error: message };
+    }
+
+    const instructions = await readFile(file, "utf8");
+    if (!instructions.trim()) {
+      const message = `Skill file for "${skill.id}" is empty: ${file}`;
+      globalEventBus.emit("tool.failed", { toolName: "skill", error: message, callId });
+      return { success: false, error: message };
+    }
 
     const output = instructions;
     const metadata = {
       skillId: skill.id,
       skillName: skill.name,
       tags: skill.tags ?? [],
+      file,
+      bytes: Buffer.byteLength(instructions, "utf8"),
     };
 
     globalEventBus.emit("tool.completed", { toolName: "skill", output, callId, metadata });

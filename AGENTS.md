@@ -1,4 +1,4 @@
-# SoryOS-Code Master Agent Operating Instructions (`AGENTS.md`)
+hi# SoryOS-Code Master Agent Operating Instructions (`AGENTS.md`)
 
 > **System Notice for AI Agents**: This is the authoritative operating guide for all AI Agents (`build`, `plan`, `explore`, `code-reviewer`) working on the SoryOS-Code codebase. You MUST read and follow these rules whenever interacting with this repository.
 
@@ -84,283 +84,42 @@ VERIFICATION & FINAL RESPONSE (UI / CLI)
 | **`@soryos/dev-runner`** | `packages/dev-runner` | Development server orchestrator and port detector |
 | **`@soryos/cli`** | `packages/cli` | Autonomous CLI engine (`soryos-code`) |
 | **`@soryos/sandbox`** | `packages/sandbox` | Sandbox execution environments (E2B, Vercel, Codespaces, Cloud Run) |
-| **`@soryos/jobs`** | `packages/jobs` | **REAL Inngest background job queue** with retry logic and multi-provider support |
+| **`@soryos/plugin`** | `packages/plugin` | Promise-based plugin API, loader, storage backend |
+| **`@soryos/theme`** | `packages/theme` | OKLCH theme math (schema, expansion, resolution) |
+| **`@soryos/images`** | `packages/images` | Real image format/metadata parsing (magic bytes) |
+| **`@soryos/vision`** | `packages/vision` | Vision model providers (Gemini, OpenAI, Mistral, Anthropic) |
+| **`@soryos/voice`** | `packages/voice` | Speech-to-text providers (Google, Azure, Whisper) |
 
 ---
 
-## 🎯 8. Database: SQLite (Free, Local)
+## 🗄️ 8. Persistence & Real-Time (Honest State)
 
-### Overview
-**SQLite** is the database for SoryOS-Cloud. It is:
-- ✅ **100% free** (no cloud costs, no limits)
-- ✅ **Already implemented** in `apps/api/src/soryos-code/db.py`
-- ✅ **Real-time via SSE** (Server-Sent Events, already implemented)
-- ✅ **Zero external dependencies** (no Firebase, no Convex)
+### Persistence
+- **`@soryos/session`** is the single source of truth for `SessionData` (messages, mode, workspace, tool steps, permission grants, todo roadmaps).
+- Storage is **in-memory only**: a module-level `Map` on `globalThis.__soryos_sessions_store`. A server restart **LOSES all sessions**. Durable persistence (SQLite or any database) is **NOT implemented** — never claim otherwise.
+- There is **no** Firebase, no Convex, no `apps/api`, no FastAPI, no Python backend in this repository. `apps/` contains only the Next.js `web` app. Stale docs mentioning `apps/api/src/soryos-code/db.py`, `data/soryos.db`, or `venv/` are **FALSE**.
 
-### Architecture
-```
-FastAPI Backend
-├── db.py          # SQLite models (sessions, messages)
-├── main.py        # REST routes + SSE stream
-└── agent/         # Agent runtime
+### Real-Time
+- Streaming is **Next.js SSE routes** (no external service):
+  - `apps/web/lib/sse-helper.ts` — SSE helpers (heartbeats, event writes).
+  - `apps/web/app/api/sessions/[id]/messages/route.ts` — message/history stream.
+  - `apps/web/app/api/sessions/[id]/run/route.ts` — agent run stream (status, text, tool_start, tool_end, error, done).
+- `@soryos/bus` (`globalEventBus`) fans out agent/tool events; the run route writes them to the SSE connection the browser subscribes to.
 
-SSE Events (real-time): status, text, tool_start, tool_end, preview, files_changed, done, error
-```
-
-### Why SQLite over Firebase/Convex?
-| Criteria | SQLite | Firebase | Convex |
-|----------|--------|----------|--------|
-| **Cost** | Free | Pay (beyond free tier) | Pay (beyond free tier) |
-| **External account** | None | Required | Required |
-| **Server** | Local | Google Cloud | Convex Cloud |
-| **Real-time** | SSE (already done) | onSnapshot | Subscriptions |
-| **Complexity** | Minimal | Medium | High |
+### Background Jobs — NOT IMPLEMENTED
+- `@soryos/jobs` (Inngest-style queue) **never compiled** (it imported Convex `_generated` types after Convex was removed) and has been **deleted** along with every doc claim about `soryos/create.session`, `soryos/run.agent`, concurrency limits, and `queue.ts`.
+- Long agent runs execute **inline in the SSE run route's request path**, streamed to the client. There is no queued/durable job system.
+- If one is ever needed, it must be built for real before any table or diagram may mention it (see Rule §2: NO FAKE EXECUTION).
 
 ---
 
-## ⚙️ 9. NEW: Inngest Background Jobs Implementation
-
-### Overview
-**REAL Inngest background job queue** for reliable long-running task execution, based on Vibra Code's implementation.
-
-### Architecture
-```
-Inngest Client (packages/jobs/src/)
-├── inngest.ts           # Inngest client configuration
-├── client.ts           # Client initialization
-├── middleware.ts        # Middleware for request handling
-├── queue.ts             # Job queue with concurrency control (22KB)
-├── types.ts             # TypeScript type definitions
-└── functions/
-     ├── create-session.ts  # Sandbox creation pipeline (14KB)
-     ├── run-agent.ts       # Agent execution with streaming (41KB)
-     └── push-to-github.ts   # GitHub auto-push
-```
-
-### Inngest Functions
-
-#### `soryos/create.session`
-- **Purpose**: Creates sandbox, triggers agent, starts dev server
-- **Timeout**: 15 minutes
-- **Concurrency**: 25 parallel sessions
-- **Retries**: 0 (manual retry on failure)
-- **Steps**:
-  1. Create E2B sandbox with template
-  2. Initialize Git repository
-  3. Set environment variables
-  4. Start development server
-  5. Create tunnel for preview
-  6. Trigger agent execution
-  7. Update session status in SQLite
-
-#### `soryos/run.agent`
-- **Purpose**: Executes AI agent in sandbox with streaming
-- **Timeout**: 60 minutes
-- **Concurrency**: 25 parallel agents
-- **Retries**: 3 with exponential backoff
-- **Features**:
-  - Multi-AI provider support (Claude, Cursor, Gemini)
-  - Real-time stdout/stderr streaming via SSE
-  - Tool call processing (read, write, edit, bash, grep, etc.)
-  - Cost tracking per session
-  - Error recovery with onFailure handler
-  - Auto-push to GitHub trigger
-
-#### `soryos/resume.session`
-- **Purpose**: Resumes paused sandbox session
-- **Trigger**: User request or auto-resume
-
-#### `soryos/stop.session`
-- **Purpose**: Pauses sandbox to save costs
-- **Trigger**: Auto-pause timeout or manual stop
-
-### Multi-AI Provider Support
-- **Claude**: Full Claude API integration
-- **Cursor**: Cursor agent with token-based billing
-- **Gemini**: Google Gemini integration
-
-### Template System
-- **Expo Template**: React Native mobile apps
-- **Next.js Template**: Web applications
-- **FastAPI + Next.js**: Full-stack applications
-
-### Error Recovery
-- **Timeout Handling**: Auto-resume on timeout
-- **Sandbox Termination**: Graceful cleanup and notification
-- **Retry Logic**: Exponential backoff for transient errors
-
-### Files
-- `packages/jobs/src/inngest.ts`
-- `packages/jobs/src/client.ts`
-- `packages/jobs/src/middleware.ts`
-- `packages/jobs/src/queue.ts` (22KB)
-- `packages/jobs/src/types.ts`
-- `packages/jobs/src/functions/create-session.ts` (14KB)
-- `packages/jobs/src/functions/run-agent.ts` (41KB)
-- `packages/jobs/src/functions/push-to-github.ts`
-
----
-
-## 🔄 10. Integration Pipeline
-
-### End-to-End Flow (User → Response)
-```
-USER PROMPT
-     ↓
-Inngest Job (soryos/create.session)
-     ↓
-E2B Sandbox Creation
-     ↓
-Session State in SQLite
-     ↓
-Inngest Job (soryos/run.agent)
-     ↓
-Agent Execution in Sandbox
-     ↓
-Tool Calls (read, write, bash, etc.)
-     ↓
-Real-Time Streaming via SSE
-     ↓
-Frontend UI Updates
-     ↓
-USER SEES REAL-TIME RESULTS
-```
-
-### Session Lifecycle
-```
-SETTING_UP_SANDBOX → CLONING_REPO → INSTALLING_DEPENDENCIES → STARTING_DEV_SERVER
-     ↓
-CREATING_TUNNEL → RUNNING → AUTO_PUSHING → PUSH_COMPLETE
-     ↓
-PAUSED (auto-pause after timeout) → RESUMING → RUNNING
-     ↓
-TERMINATED (manual stop or error)
-```
-
----
-
-## 📊 11. Feature Comparison: Vibra Code vs SoryOS-Cloud
-
-### ✅ Implemented from Vibra Code
-
-| Feature | Vibra Code | SoryOS-Cloud | Status |
-|---------|------------|--------------|--------|
-| SQLite (Local) Database | ✅ | ✅ | **REAL - Free, local, SSE real-time** |
-| Inngest Background Jobs | ✅ | ✅ | **REAL - Fully implemented** |
-| E2B Sandbox Execution | ✅ | ✅ | **REAL - Already existed, enhanced** |
-| Session Management | ✅ | ✅ | **REAL - Extended with SoryOS hierarchy** |
-| Message Streaming | ✅ | ✅ | **REAL - All tool types supported** |
-| Multi-AI Provider | ❌ (Claude only) | ✅ | **REAL - Claude, Cursor, Gemini** |
-| Template System | ✅ | ✅ | **REAL - Expo, Next.js, FastAPI+Next.js** |
-| Auto-Pause/Resume | ✅ | ✅ | **REAL - Enhanced with session tokens** |
-| Cost Tracking | ✅ | ✅ | **REAL - Token + Credit systems** |
-| GitHub Integration | ✅ | ✅ | **REAL - Auto-push support** |
-| OCC Retry | ✅ | ✅ | **REAL - Exponential backoff** |
-| Ownership Verification | ✅ | ✅ | **REAL - All queries secured** |
-
-### 🎯 SoryOS-Cloud Native Features (Better than Vibra Code)
-
-| Feature | Vibra Code | SoryOS-Cloud | Advantage |
-|---------|------------|--------------|-----------|
-| Multi-Sandbox Provider | ❌ (E2B only) | ✅ | Vercel, Codespaces, Cloud Run, Local |
-| Project/Workspace Hierarchy | ❌ | ✅ | Native SoryOS architecture |
-| Rust Engine | ❌ | ✅ | High-performance core |
-| Existing Package Ecosystem | ❌ | ✅ | @soryos/* packages |
-| Event Bus | ❌ | ✅ | Centralized streaming |
-| Permissions System | ❌ | ✅ | Granular access control |
-
-### 📋 What We Did NOT Copy
-- ❌ Branding, logos, names
-- ❌ Exact UI design
-- ❌ Unnecessary architecture
-- ❌ Code without understanding
-- ❌ Fake implementations
-
----
-
-## 🚀 12. What's NEW and REAL
-
-### Database Layer
-- **SQLite**: Free, local database (apps/api/src/soryos-code/db.py)
-- **Session Management**: Full CRUD with SQLite models
-- **Message Handling**: All tool types (bash, read, edit, webSearch, mcpTool, todos)
-- **Billing System**: Dual-mode (tokens + credits) with accurate tracking
-
-### Job Layer
-- **Inngest Queue**: Production-ready with concurrency, retry, timeout
-- **Session Creation**: Full pipeline from sandbox to agent execution
-- **Agent Execution**: Real-time streaming with multi-AI provider support
-- **Error Recovery**: Auto-resume, graceful degradation, accurate cost tracking
-
-### Integration
-- **Real-Time Sync**: SSE stream updates frontend instantly
-- **Background Processing**: Inngest handles long-running tasks reliably
-- **Multi-Provider**: Works with E2B, Vercel, Codespaces, Cloud Run, Local
-- **Cost Optimization**: Auto-pause, session tokens, accurate billing
-
-### All Features CLAIMED are REAL and IMPLEMENTED:
-- ✅ SQLite real-time database (free, local)
-- ✅ Inngest background jobs
-- ✅ Multi-AI provider support (Claude, Cursor, Gemini)
-- ✅ Multi-sandbox provider (E2B, Vercel, Codespaces, Cloud Run, Local)
-- ✅ Template system (Expo, Next.js, FastAPI+Next.js)
-- ✅ Auto-pause/resume with session tokens
-- ✅ Cost tracking (tokens + credits)
-- ✅ GitHub integration (auto-push)
-- ✅ Error recovery (OCC retry, onFailure handlers)
-
----
-
-## 📁 13. File Changes Summary
-
-### Created Files (NEW)
-| File | Size | Purpose |
-|------|------|---------|
-| `packages/jobs/src/inngest.ts` | 1.7KB | Inngest client config |
-| `packages/jobs/src/functions/create-session.ts` | 14KB | Sandbox creation pipeline |
-| `packages/jobs/src/functions/run-agent.ts` | 41KB | Agent execution with streaming |
-| `packages/plugin/src/index.ts` | 3KB | Promise-based plugin API |
-| `packages/plugin/src/host.ts` | 4KB | Plugin context + registries |
-| `packages/plugin/src/loader.ts` | 3KB | Plugin loader (resolve + load) |
-| `packages/theme/src/` | 5KB+ | OKLCH theme system |
-
-### Updated Files
-| File | Changes |
-|------|---------|
-| `AGENTS.md` (root) | SQLite instead of Convex, plugin + theme sections |
-| `README.md` | Mermaid diagrams, SQLite architecture, plugin docs |
-
-### Dependencies
-- `inngest` - Inngest client (packages/jobs)
-- SQLite - Built-in (Python stdlib, apps/api)
-
-### DELETED Files
-| File | Reason |
-|------|--------|
-| `packages/database/` | Replaced by SQLite (free, local, already implemented) |
-| `apps/web/src/firebase/` | Unused, replaced by SSE real-time |
-
----
-
-## 🎯 14. Next Steps (User Request Priority)
-
-**User requested order:**
-> "commence par celle de convex apres inngest apres du mets a jour les fichiers md d agents apres tu pousse directement dans github sur main"
-
-### Status
-1. ✅ **Convex implementation** - **REPLACED by SQLite** (free, local, already implemented)
-2. ✅ **Inngest implementation** - **COMPLETE** (client + create-session + run-agent + resume + stop)
-3. ✅ **Update AGENTS.md files** - **COMPLETE** (root AGENTS.md, README.md)
-4. ✅ **Push to GitHub main** - **COMPLETE**
-
----
 
 ## 🔒 15. Absolute Rules (REITERATED)
 
 1. **NO FAKE IMPLEMENTATIONS**: Every feature claimed must work **REALLY**
 2. **NO BLIND COPYING**: Only adapt mechanisms, never copy architecture
 3. **RESPECT SORYOS ARCHITECTURE**: Project → Workspace → Session → Environment
-4. **RUST ENGINE CORE**: Must remain the heart of SoryOS-Cloud
+4. **ENGINE CORE**: The TypeScript `@soryos/*` suite is the heart of SoryOS (no Rust engine exists here — do not claim one)
 5. **MULTI-PROVIDER**: Always support all sandbox providers
 6. **SECURITY FIRST**: Ownership verification on all data access
 7. **REAL-TIME**: If we claim real-time, it must be **ACTUALLY** real-time
@@ -410,21 +169,19 @@ Before making any edit:
 ## 📊 6. Recent Implementations & Status
 
 ### ✅ Completed (Pushed to GitHub)
-- **Job Queue System** (`@soryos/jobs`): Production-ready queue with concurrency control, priority scheduling, retry logic, and error classification
+- **35 built-in tools** (`@soryos/tool`): including `vision_analyze`, `voice_transcribe`, `image_info` (real disk/model I/O, read-only for plan mode)
 - **Enhanced E2B Provider** (`@soryos/sandbox`): Real E2B SDK integration with auto-pause, session tokens, and streaming commands
 - **Agent Configuration** (`@soryos/agent`): Runtime with streaming, providers abstraction, and types
-- **Plugin System** (`@soryos/plugin`): Promise-based plugin authoring API + loader
+- **Plugin System** (`@soryos/plugin`): Promise-based plugin authoring API + loader + real disk storage backend
 - **Theme System** (`@soryos/theme`): OKLCH color math + schema + expansion + resolution
+- **Cleanup**: dead packages (`jobs`, `shared`, `editor`, `platform`, `ui`) and fake providers/placeholders removed; docs corrected to match reality
 - **Vibra Code Audit**: Complete documentation in `docs/audit/vibra-code/`
 
 ### 🔄 In Progress
-- **SQLite Database**: Free, local, already implemented (apps/api/src/soryos-code/db.py)
-- **Inngest Jobs**: REAL background job queue
-- **AGENTS.md Updates**: Documentation for new features
+- **Durable session persistence**: NOT implemented (in-memory only today) — would replace `@soryos/session`'s Map with a real store
+- **Queued background jobs**: NOT implemented — build for real before claiming
 
 ### ⏳ Pending
-- Voice input support
-- Image input support
 - Mobile app integration
 
 ---
@@ -434,23 +191,23 @@ Before making any edit:
 ### Key Features Adapted from Vibra Code
 | Feature | Vibra Code Implementation | SoryOS Implementation | Status |
 |---------|---------------------------|----------------------|--------|
-| Real-time Sync | Convex subscriptions | SQLite + SSE (free, local) | ✅ Complete |
-| Background Jobs | Inngest queue | `@soryos/jobs` with queue.ts | ✅ Complete |
+| Real-time Sync | Convex subscriptions | Next.js SSE routes + `@soryos/bus` | ✅ Complete (durable DB not implemented) |
+| Background Jobs | Inngest queue | None — `@soryos/jobs` deleted (never compiled) | ❌ Not implemented |
 | Sandbox Execution | E2B SDK | `@soryos/sandbox` with E2B provider | ✅ Complete |
 | Error Recovery | onFailure handler | Error classification system | ✅ Complete |
 | Multi-provider | E2B only | E2B, Vercel, Codespaces, Cloud Run | ✅ Already exists |
-| Session Management | Convex | `@soryos/session` + SQLite | ✅ Complete |
+| Session Management | Convex | `@soryos/session` (in-memory store) | ⚠️ Works in-process; lost on restart |
 
 ### Architecture Preservation
 - SoryOS hierarchy maintained: Project → Workspace → Session → Environment
-- Rust Engine remains core
+- Engine core is the TypeScript `@soryos/*` package suite (no Rust code exists in this repository — any "Rust engine" mention in older docs is stale)
 - Multi-provider support preserved
 - No duplicate architectures introduced
 
 ---
 
-**Last Updated**: October 15, 2025
-**Status**: SQLite ✅ | Inngest ✅ | Plugin ✅ | Theme ✅ | GitHub Push ⏳
+**Last Updated**: October 18, 2026
+**Status**: 35 tools ✅ | Plugin ✅ | Theme ✅ | Cleanup ✅ | Durable DB ⏳ | Jobs ⏳
 
 <!-- BEGIN:turborepo-agent-rules -->
 

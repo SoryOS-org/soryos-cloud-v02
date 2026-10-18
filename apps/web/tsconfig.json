@@ -128,12 +128,6 @@
       "@soryos/auth/*": [
         "../../packages/auth/src/*"
       ],
-      "@soryos/shared": [
-        "../../packages/shared/src"
-      ],
-      "@soryos/shared/*": [
-        "../../packages/shared/src/*"
-      ],
       "@soryos/credentials": [
         "../../packages/credentials/src"
       ],
@@ -158,12 +152,6 @@
       "@soryos/github/*": [
         "../../packages/github/src/*"
       ],
-      "@soryos/jobs": [
-        "../../packages/jobs/src"
-      ],
-      "@soryos/jobs/*": [
-        "../../packages/jobs/src/*"
-      ],
       "@soryos/images": [
         "../../packages/images/src"
       ],
@@ -181,24 +169,6 @@
       ],
       "@soryos/vision/*": [
         "../../packages/vision/src/*"
-      ],
-      "@soryos/ui": [
-        "../../packages/ui/src"
-      ],
-      "@soryos/ui/*": [
-        "../../packages/ui/src/*"
-      ],
-      "@soryos/editor": [
-        "../../packages/editor/src"
-      ],
-      "@soryos/editor/*": [
-        "../../packages/editor/src/*"
-      ],
-      "@soryos/platform": [
-        "../../packages/platform/src"
-      ],
-      "@soryos/platform/*": [
-        "../../packages/platform/src/*"
       ],
       "@soryos/plugin": [
         "../../packages/plugin/src"

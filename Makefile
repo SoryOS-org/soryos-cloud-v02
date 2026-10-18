@@ -1,4 +1,4 @@
-# OpenCode Build Agent - Makefile
+# SoryOS-Code - Makefile
 
 install:
 	npm install

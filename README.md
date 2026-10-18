@@ -29,9 +29,9 @@ SoryOS-Code abstracts code execution behind a unified `SandboxProvider` contract
 | Layer   | Tech                                                |
 | ------- | --------------------------------------------------- |
 | Web     | Next.js 16, React 19, Tailwind 4, shadcn/ui, Monaco |
-| API     | FastAPI, SQLAlchemy + SQLite, SSE streaming         |
-| Agent   | LangGraph, DeepSeek (`langchain-deepseek`)          |
-| Runtime | E2B code interpreter sandboxes                      |
+| API     | Next.js route handlers (App Router) + SSE streaming |
+| Agent   | `@soryos/agent` runtime + `@soryos/provider` (Gemini, OpenAI, Mistral, Zen) |
+| Runtime | `@soryos/execution` — local, E2B, Vercel, Codespaces, Cloud Run |
 | Plugins | `@soryos/plugin` (Promise-based plugin authoring API) |
 
 ## Architecture
@@ -41,11 +41,10 @@ SoryOS-Code abstracts code execution behind a unified `SandboxProvider` contract
 ```mermaid
 graph TB
     subgraph apps["Apps"]
-        web["apps/web<br/>Next.js 16 + React 19<br/>Landing + Chat UI + Preview"]
-        api["apps/api<br/>FastAPI + LangGraph<br/>Agent Runtime + Routes"]
+        web["apps/web<br/>Next.js 16 + React 19<br/>Landing + Chat UI + SSE Routes"]
     end
 
-    subgraph packages["@soryos/* Packages (33 total)"]
+    subgraph packages["@soryos/* Packages (26 total)"]
         schema["@soryos/schema<br/>Domain Types & Contracts"]
         core["@soryos/core<br/>Error Classes"]
         bus["@soryos/bus<br/>Event Bus"]
@@ -54,7 +53,7 @@ graph TB
         tool["@soryos/tool<br/>ToolRegistry + ToolExecutor<br/>35 built-in tools + MCP"]
         agent["@soryos/agent<br/>Multi-Turn Agent Runtime"]
         workspace["@soryos/workspace<br/>ActiveWorkspace State"]
-        session["@soryos/session<br/>Session Store & History"]
+        session["@soryos/session<br/>Session Store (in-memory)"]
         provider["@soryos/provider<br/>Multi-Model AI Provider Registry"]
         filesystem["@soryos/filesystem<br/>Filesystem Adapter"]
         git["@soryos/git<br/>Git Tracking & Branch Management"]
@@ -62,37 +61,36 @@ graph TB
         devRunner["@soryos/dev-runner<br/>Dev Server Orchestrator"]
         cli["@soryos/cli<br/>Autonomous CLI Engine"]
         sandbox["@soryos/sandbox<br/>Sandbox Environments<br/>E2B, Vercel, Codespaces, Cloud Run"]
-        jobs["@soryos/jobs<br/>Inngest Background Job Queue"]
+        vision["@soryos/vision<br/>Vision Model Providers"]
+        voice["@soryos/voice<br/>Speech-to-Text Providers"]
+        images["@soryos/images<br/>Image Format/Metadata Parsing"]
         theme["@soryos/theme<br/>OKLCH Theme System"]
         plugin["@soryos/plugin<br/>Promise-Based Plugin API"]
-        shared["@soryos/shared<br/>Shared Utilities"]
     end
 
     subgraph infra["Infrastructure"]
-        sqlite["SQLite<br/>Local Database (Free)"]
-        inngest["Inngest<br/>Background Job Queue"]
         e2b["E2B<br/>Sandbox Provider"]
     end
 
-    web -->|REST + SSE| api
-    api -->|Agent Runtime| agent
+    web -->|Route Handlers + SSE| agent
+    web -->|Session API| session
     agent -->|Tool Calls| tool
     tool -->|Physical Execution| execution
     execution -->|Shell + FS| e2b
-    
+
     agent -->|Session State| session
-    session -->|Persistence| sqlite
-    
-    agent -->|Background Jobs| jobs
-    jobs -->|Queue| inngest
-    
+    agent -->|Bus Events| bus
+
+    tool -->|vision_analyze| vision
+    tool -->|voice_transcribe| voice
+    tool -->|image_info| images
+
     plugin -->|Extends| tool
     plugin -->|Hooks Into| permissions
     plugin -->|Subscribes To| bus
     theme -->|Used By| web
 
     style web fill:#61DAFB,stroke:#333,stroke-width:2px
-    style api fill:#333,stroke:#fff,stroke-width:2px
     style tool fill:#F38020,stroke:#333,stroke-width:2px
     style plugin fill:#7B2FF7,stroke:#333,stroke-width:2px
     style theme fill:#FF6B6B,stroke:#333,stroke-width:2px
@@ -169,30 +167,30 @@ graph LR
 
 ## Request Flow
 
-1. User creates a session with an initial prompt → stored in SQLite (free, local).
-2. `POST /api/sessions/:id/run` starts the agent via Inngest background job.
-3. Agent uses sandbox tools; UI streams text and tool events in real time via SSE.
-4. On completion, assistant + tool rows are saved; reload restores full history.
+1. User creates a session with an initial prompt → stored in `@soryos/session` (in-memory; a server restart loses sessions — no durable DB yet).
+2. `POST /api/sessions/:id/run` invokes the agent inline in the Next.js route handler.
+3. Agent uses sandbox tools; the route streams text and tool events to the UI in real time via SSE.
+4. Assistant + tool rows are written to the session store; reload restores full history while the process is alive.
 5. Demo tab calls `GET /preview` to ensure the dev server is up.
 
 ## Quick start
 
-**Prerequisites:** Node 20+, Python 3.9+, [pnpm](https://pnpm.io/), [E2B](https://e2b.dev/) and [DeepSeek](https://platform.deepseek.com/) API keys.
+**Prerequisites:** Node 20+, npm, and at least one AI provider key ([Gemini](https://aistudio.google.com/), [OpenAI](https://platform.openai.com/), [Mistral](https://console.mistral.ai/)) plus optionally an [E2B](https://e2b.dev/) key.
 
 ```bash
 git clone <repo-url> soryos-code && cd soryos-code
-make setup        # install deps + copy .env.example → .env
+make install      # npm install (turbo workspaces)
 ```
 
-Add your keys to `.env`:
+Add your keys to `.env` (see `.env.example`):
 
 ```env
-DEEPSEEK_API_KEY=...
+GEMINI_API_KEY=...
 E2B_API_KEY=...
 ```
 
 ```bash
-make dev          # web → :3000  |  api → :8000
+make dev          # web → :3000
 ```
 
 Open [http://localhost:3000](http://localhost:3000), describe an app, and follow the agent in the workspace.
@@ -201,12 +199,13 @@ Open [http://localhost:3000](http://localhost:3000), describe an app, and follow
 
 | Variable              | Description                                           |
 | --------------------- | ----------------------------------------------------- |
-| `DEEPSEEK_API_KEY`    | DeepSeek API key                                      |
+| `GEMINI_API_KEY`      | Google Gemini provider (vision + chat)                |
+| `OPENAI_API_KEY`      | OpenAI provider (vision + chat)                       |
+| `MISTRAL_API_KEY`     | Mistral provider (vision + chat)                      |
+| `ANTHROPIC_API_KEY`   | Anthropic provider (vision)                           |
 | `E2B_API_KEY`         | E2B sandbox API key                                   |
-| `E2B_TEMPLATE`        | Sandbox template (default: `code-interpreter-v1`)     |
-| `MODEL`               | LLM model (default: `deepseek-chat`)                  |
-| `CORS_ORIGIN`         | Allowed web origin (default: `http://localhost:3000`) |
-| `NEXT_PUBLIC_API_URL` | API base URL for the web app                          |
+| `GOOGLE_SPEECH_API_KEY` / `AZURE_SPEECH_KEY` | Speech-to-text providers            |
+| `E2B_TEMPLATE_ID`     | Sandbox template                                      |
 
 ## API
 
@@ -284,69 +283,56 @@ export default define({
 ```
 soryos-code/
 ├── apps/
-│   ├── web/                 Next.js frontend
-│   │   ├── app/             Landing + /chat/[id]
-│   │   ├── components/      Chat, preview, terminal, sidebar
-│   │   └── lib/             API client, chat blocks, types
-│   └── api/                 FastAPI backend
-│       └── src/soryos-code/
-│           ├── agent/       LangGraph graph, tools, prompts
-│           ├── agent_runtime.py
-│           ├── sandbox.py   E2B integration
-│           ├── db.py        SQLite models
-│           └── main.py      Routes
+│   └── web/                 Next.js frontend + API routes
+│       ├── app/             Landing + /chat/[id]
+│       ├── app/api/         REST + SSE routes (sessions, run, messages, terminal, mcp…)
+│       ├── components/      Chat, preview, terminal, sidebar
+│       └── lib/             API client, chat blocks, types, sse-helper
 ├── packages/
-│   ├── @soryos/schema       Domain types & contracts
-│   ├── @soryos/core         Error classes
-│   ├── @soryos/bus          EventBus streaming
-│   ├── @soryos/permissions  Role-based security
-│   ├── @soryos/execution    Physical command/file execution
-│   ├── @soryos/tool         ToolRegistry + ToolExecutor (35+ tools)
-│   ├── @soryos/agent        Multi-turn agent runtime
-│   ├── @soryos/vision       Multi-provider vision analysis
-│   ├── @soryos/voice        Speech-to-text transcription
-│   ├── @soryos/images       Image upload, processing & metadata
-│   ├── @soryos/plugin       Promise-based plugin API
-│   ├── @soryos/theme        OKLCH theme system
-│   ├── @soryos/jobs         Inngest background job queue
-│   └── ...                  (31 packages total)
-├── data/                    SQLite database (created at runtime)
+│   ├── schema               Domain types & contracts
+│   ├── core                 Error classes
+│   ├── bus                  EventBus streaming
+│   ├── permissions          Role-based security
+│   ├── execution            Physical command/file execution
+│   ├── tool                 ToolRegistry + ToolExecutor (35 tools)
+│   ├── agent                Multi-turn agent runtime
+│   ├── vision               Multi-provider vision analysis
+│   ├── voice                Speech-to-text transcription
+│   ├── images               Image format/metadata parsing
+│   ├── plugin               Promise-based plugin API
+│   ├── theme                OKLCH theme system
+│   ├── sandbox              E2B, Vercel, Codespaces, Cloud Run
+│   └── ...                  (26 packages total)
 ├── .env.example
 ├── Makefile
-└── package.json             pnpm + turbo monorepo
+└── package.json             npm + turbo monorepo
 ```
 
 ## Development
 
 ```bash
-make dev          # web + api
-make web          # frontend only
-make api          # backend only
+make dev          # web (Next.js on :3000)
 make lint         # eslint
-make typecheck    # tsc (turbo)
-```
-
-Agent self-check:
-
-```bash
-cd apps/api/src && PYTHONPATH=. ../venv/bin/python -m soryos-code.agent.self_check
+make build        # turbo build
+npm run typecheck # tsc (turbo) — 0 errors required
+npm run test:engine  # engine test suite (permissions, provider, tool, execution, agent, plugin, theme)
 ```
 
 ## What's Ported from OpenCode
 
 | Feature | OpenCode | SoryOS-Cloud | Status |
 |---------|----------|--------------|--------|
-| Real-time Sync | Convex subscriptions | SQLite + SSE (free, local) | ✅ Complete |
-| Background Jobs | Inngest queue | `@soryos/jobs` with queue.ts | ✅ Complete |
+| Real-time Sync | Convex subscriptions | Next.js SSE routes + `@soryos/bus` | ✅ Complete (in-memory store; durable DB not implemented) |
+| Background Jobs | Inngest queue | None — never implemented, removed | ❌ Not implemented |
 | Sandbox Execution | E2B SDK | `@soryos/sandbox` with E2B provider | ✅ Complete |
 | Error Recovery | onFailure handler | Error classification system | ✅ Complete |
 | Multi-provider | E2B only | E2B, Vercel, Codespaces, Cloud Run | ✅ Already exists |
-| Session Management | Convex | `@soryos/session` + SQLite | ✅ Complete |
+| Session Management | Convex | `@soryos/session` (in-memory) | ⚠️ Complete in-process; lost on restart |
 | Plugin System | @opencode/plugin | `@soryos/plugin` (Promise API) | ✅ Complete |
 | Theme System | @opencode/theme | `@soryos/theme` (OKLCH) | ✅ Complete |
 | 35+ Tools | opencode tools | `@soryos/tool` registry | ✅ Complete |
-| Multi-AI Provider | ❌ (Claude only) | ✅ Claude, Cursor, Gemini | ✅ Enhanced |
-| Template System | ✅ | ✅ Expo, Next.js, FastAPI+Next.js | ✅ Enhanced |
+| Multi-AI Provider | ❌ (Claude only) | ✅ Gemini, OpenAI, Mistral, Zen | ✅ Enhanced |
+| Template System | ✅ | ✅ Expo, Next.js templates (E2B) | ✅ Enhanced |
 | Auto-Pause/Resume | ✅ | ✅ Enhanced with session tokens | ✅ Enhanced |
 | Cost Tracking | ✅ | ✅ Token + Credit systems | ✅ Enhanced |
 | GitHub Integration | ✅ | ✅ Auto-push support | ✅ Enhanced |
