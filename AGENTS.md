@@ -1,4 +1,4 @@
-hi# SoryOS-Code Master Agent Operating Instructions (`AGENTS.md`)
+# SoryOS-Code Master Agent Operating Instructions (`AGENTS.md`)
 
 > **System Notice for AI Agents**: This is the authoritative operating guide for all AI Agents (`build`, `plan`, `explore`, `code-reviewer`) working on the SoryOS-Code codebase. You MUST read and follow these rules whenever interacting with this repository.
 
