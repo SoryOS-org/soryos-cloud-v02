@@ -318,6 +318,70 @@ npm run typecheck # tsc (turbo) — 0 errors required
 npm run test:engine  # engine test suite (permissions, provider, tool, execution, agent, plugin, theme)
 ```
 
+## CLI (`@soryos/cli`)
+
+The SoryOS-Code CLI is a standalone engine that runs the **same `@soryos/agent` runtime** as the Next.js web app — no duplicate implementation. It shares the exact code path: session store → agent runtime → tools → execution provider → event bus. The only difference is the event sink: the web app streams events via SSE routes, while the CLI renders them to stderr/stdout.
+
+```bash
+# Help
+npx tsx packages/cli/src/index.ts --help
+
+# Run a single prompt (non-interactive)
+npx tsx packages/cli/src/index.ts run "build a todo app"
+
+# Piped prompt
+echo "refactor the auth module" | npx tsx packages/cli/src/index.ts run
+
+# Session management (disk-backed, persists across runs)
+npx tsx packages/cli/src/index.ts session list
+npx tsx packages/cli/src/index.ts session export <id>
+npx tsx packages/cli/src/index.ts session import file.json
+npx tsx packages/cli/src/index.ts session delete <id>
+
+# Other commands
+npx tsx packages/cli/src/index.ts models
+npx tsx packages/cli/src/index.ts auth
+npx tsx packages/cli/src/index.ts plugin
+npx tsx packages/cli/src/index.ts debug paths
+npx tsx packages/cli/src/index.ts debug config
+```
+
+### Output Conventions (opencode-style)
+- **stdout = DATA only** (NDJSON `--format json`, lists, exports)
+- **stderr = chrome** (progress, errors, human rendering)
+- **Exit codes**: `0` ok · `1` error · `130` SIGINT
+- **`--format json`** → NDJSON events with `{type, timestamp, sessionId, ...}` envelope
+
+### `run` Flags
+
+| Flag | Alias | Description |
+|------|-------|-------------|
+| `--session` | `-s` | Session id (created if missing) |
+| `--continue` | `-c` | Resume the most recent session |
+| `--fork` | — | Fork a copy of the target session |
+| `--model` | `-m` | Model id (e.g. `gemini-2.5-flash`) |
+| `--agent` | — | Agent role: `build` \| `plan` \| `explore` \| `code-reviewer` |
+| `--format` | — | `default` \| `json` |
+| `--auto` | — | Auto-approve permission prompts |
+| `--title` | — | Session title |
+
+### Shared Engine with the Web App
+
+```
+CLI run → @soryos/agent (agentRuntime.run) → @soryos/tool → @soryos/execution → @soryos/bus → events
+Web run → @soryos/agent (agentRuntime.run) → @soryos/tool → @soryos/execution → @soryos/bus → SSE routes
+```
+
+Both call `agentRuntime.run()` with the same `AgentRunOptions` shape. The only difference is the event sink. See `packages/cli/AGENTS.md` for full details.
+
+### Future: Shared CLI/GUI Interface
+The next phase is to extract a shared interface layer that both the CLI and the web app can use, so they look and behave the same:
+1. Extract `run` logic into a reusable function in `@soryos/agent` that accepts an event sink callback
+2. Make the CLI a thin adapter that calls the shared `run` function and renders events to the terminal
+3. Make the web app use the same `run` function and render events to SSE
+4. Shared session resolution (`--session/--continue/--fork`) in `@soryos/session`
+5. Shared output formatting — the NDJSON event format is already the same for both CLI (`--format json`) and web (SSE events)
+
 ## What's Ported from OpenCode
 
 | Feature | OpenCode | SoryOS-Cloud | Status |

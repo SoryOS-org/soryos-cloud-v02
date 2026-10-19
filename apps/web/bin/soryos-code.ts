@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
  * SoryOS-Code CLI Adapter
- * Directly routes to the official @soryos/cli package.
+ * Routes to the official @soryos/cli package (same engine as the web app).
  */
 
 import { runCLI } from "@soryos/cli";
 
 if (require.main === module) {
-  runCLI().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  runCLI()
+    .then((code) => process.exit(code))
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
 }
 
 export { runCLI };

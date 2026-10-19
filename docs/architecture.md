@@ -7,25 +7,33 @@ SoryOS-Code Monorepo
 │
 ├── apps/
 │   ├── web/                # Next.js 16 + React 19 Web IDE
+│   │                       # SSE adapter over the same engine
 │   └── cli/                # Autonomous CLI engine (`soryos-code`)
+│                           # Terminal adapter — shares the engine with `apps/web`
 │
 └── packages/
-    ├── schema/             # Central domain types & contracts
+    ├── schema/             # Central domain types & contracts (incl. canonical event contract)
     ├── core/               # Base errors & exceptions
     ├── bus/                # GlobalEventBus real-time event stream
-    ├── permissions/        # Role-based policy manager
-    ├── execution/          # Physical command & file execution providers
-    ├── tool/               # ToolRegistry & ToolExecutor
-    ├── agent/              # AgentRuntime multi-turn loop
-    ├── workspace/          # ActiveWorkspace manager
-    ├── session/            # Persistent SessionStore
-    ├── provider/           # Multi-model AI Provider Registry
-    ├── filesystem/         # Filesystem manager
-    ├── git/                # Git operations manager
-    ├── pty/                # Interactive PTY manager
-    ├── dev-runner/         # Dev server orchestrator
-    ├── config/             # Config preferences manager
-    └── auth/               # Auth & API key manager
+    ├── agent/               # Multi-turn AgentRuntime (the shared heart)
+    ├── tool/                # ToolRegistry + ToolExecutor (35 tools + MCP)
+    ├── execution/          # Physical Command/File Execution provider layer
+    ├── permissions/         # Role-based security + ask-gate
+    ├── session/             # Session Store + session target resolution
+    ├── filesystem/         # Filesystem operations adapter
+    ├── git/                 # Git tracking, branch management
+    ├── sandbox/             # E2B, Vercel, Codespaces, Cloud Run providers
+    ├── terminal/            # PTY process stream manager
+    ├── dev-runner/          # Dev server orchestrator
+    ├── plugin/              # Promise-based plugin authoring API
+    ├── theme/              # OKLCH theme system
+    ├── images/             # Real image format/metadata parsing
+    ├── vision/              # Vision model providers
+    ├── voice/              # Speech-to-text providers
+    ├── auth/               # Credentials management
+    ├── credentials/        # Secure credential store
+    ├── config/             # Configuration service
+    └── cli/                 # CLI command tree + handlers (opencode-Spec pattern)
 ```
 
 ## Data Flow Pipeline

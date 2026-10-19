@@ -1,163 +1,119 @@
 #!/usr/bin/env node
 /**
- * @soryos/cli
- * Real standalone CLI sharing the unified @soryos/agent runtime.
+ * @soryos/cli — CLI standalone du moteur autonome SoryOS-Code.
+ * Structure inspirée d'opencode : arbre de commandes déclaratif + handlers
+ * lazy-loading + conventions stdout/stderr + --format json + exit codes.
  */
 
-import { agentRuntime } from "@soryos/agent";
-import { globalEventBus } from "@soryos/bus";
-import { AgentEventPayload, SessionData } from "@soryos/schema";
-import { sessionStore } from "@soryos/session";
+import { parseInvocation, printRootHelp, printCommandHelp, ROOT_SPEC } from "./framework/spec";
+import { fail, EXIT_OK, EXIT_ERROR, println, writeOut } from "./framework/ui";
+import type { CommandContext, CommandHandler } from "./framework/spec";
 
-const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  cyan: "\x1b[36m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  red: "\x1b[31m",
-  magenta: "\x1b[35m",
-  blue: "\x1b[34m",
-};
-
-export async function runCLI(argv: string[] = process.argv.slice(2)): Promise<void> {
-  if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
-    console.log(`
-${colors.bold}${colors.cyan}SoryOS-Code CLI${colors.reset} - Autonomous Coding Agent Engine
-
-${colors.bold}USAGE:${colors.reset}
-  soryos-code run "<prompt>" [options]
-  soryos-code "<prompt>" [options]
-
-${colors.bold}OPTIONS:${colors.reset}
-  --session <id>     Session ID (default: creates new cli session)
-  --agent <agent>    Agent role: build | plan | explore | code-reviewer (default: build)
-  --model <model>    Model ID (default: gemini-3.8-flash)
-  --help, -h         Show this message
-`);
-    return;
-  }
-
-  let prompt = "";
-  let sessionId = `cli-${Date.now()}`;
-  let agentId = "build";
-  let modelId = "gemini-3.8-flash";
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "run" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
-      prompt = argv[++i];
-    } else if (arg === "--session" && i + 1 < argv.length) {
-      sessionId = argv[++i];
-    } else if (arg === "--agent" && i + 1 < argv.length) {
-      agentId = argv[++i];
-    } else if (arg === "--model" && i + 1 < argv.length) {
-      modelId = argv[++i];
-    } else if (!arg.startsWith("--") && !prompt) {
-      prompt = arg;
-    }
-  }
-
-  if (!prompt) {
-    console.error(`${colors.red}Error:${colors.reset} Prompt is required.`);
-    process.exit(1);
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
-  if (!apiKey) {
-    console.error(`${colors.red}Error:${colors.reset} GEMINI_API_KEY environment variable is required.`);
-    process.exit(1);
-  }
-
-  const session: SessionData = {
-    id: sessionId,
-    title: "CLI Session",
-    sandbox_id: `sandbox-${sessionId}`,
-    sandbox_state: "running",
-    environment: "local",
-    providerId: "local",
-    model: modelId,
-    provider: "Google Gemini",
-    created_at: new Date().toISOString(),
-    messages: [],
-    files: {},
-    preview_url: null,
-    needs_run: false,
-    agent_running: false,
-    cwd: process.cwd(),
-    openFiles: [],
-    activeFile: "",
-  };
-  session.messages.push({
-    id: `user-${Date.now()}`,
-    role: "user",
-    content: prompt,
-    created_at: new Date().toISOString(),
-  });
-  sessionStore.save(session);
-
-  console.log(`\n${colors.bold}${colors.magenta}=== SoryOS-Code Autonomous Engine (CLI) ===${colors.reset}`);
-  console.log(`${colors.dim}Session : ${sessionId}${colors.reset}`);
-  console.log(`${colors.dim}Agent   : ${agentId}${colors.reset}`);
-  console.log(`${colors.bold}${colors.cyan}Prompt  : "${prompt}"${colors.reset}\n`);
-
-  globalEventBus.on("*", (event: AgentEventPayload) => {
-    if (event.sessionId !== sessionId) return;
-
-    switch (event.type) {
-      case "agent.started":
-        console.log(`${colors.green}● Agent started${colors.reset}`);
-        break;
-      case "tool.started":
-        console.log(`${colors.yellow}⚙ Executing tool:${colors.reset} ${colors.bold}${event.data.toolName}${colors.reset}`);
-        break;
-      case "tool.completed":
-        console.log(`${colors.green}✔ Tool completed:${colors.reset} ${event.data.toolName}`);
-        break;
-      case "tool.failed":
-        console.log(`${colors.red}✖ Tool failed:${colors.reset} ${event.data.toolName} - ${event.data.error}`);
-        break;
-      case "file.changed":
-        console.log(`${colors.cyan}📄 File modified:${colors.reset} ${event.data.path} (${event.data.action})`);
-        break;
-      case "process.started":
-        console.log(`${colors.blue}▶ Shell command:${colors.reset} ${event.data.command}`);
-        break;
-      case "process.exited":
-        console.log(
-          `${Number(event.data.exitCode) === 0 ? colors.green : colors.red}◀ Process exited with code ${
-            event.data.exitCode
-          } (${event.data.durationMs}ms)${colors.reset}`
-        );
-        break;
-      case "agent.completed":
-        console.log(
-          `\n${colors.bold}${colors.green}✔ Agent task finished successfully (${event.data.stepsExecuted} steps, ${event.data.toolsExecuted} tools).${colors.reset}`
-        );
-        break;
-      case "agent.failed":
-        console.log(`\n${colors.bold}${colors.red}✖ Agent task failed: ${event.data.error}${colors.reset}`);
-        break;
-    }
-  });
-
-  await agentRuntime.run({
-    sessionId: session.id,
-    modelId,
-    agentId,
-    apiKey,
-    emit: (e: any) => {
-      if (e.type === "text" && e.delta) {
-        process.stdout.write(e.delta as string);
-      }
-    },
-  });
+interface ResolvedHandler {
+  handler: CommandHandler;
 }
 
+/** Résout le handler correspondant à un chemin de commande (lazy import). */
+async function resolveHandler(path: string[]): Promise<ResolvedHandler | null> {
+  const [cmd, sub] = path;
+
+  switch (cmd) {
+    case "run":
+      return { handler: (await import("./commands")).runHandler };
+
+    case "session":
+      if (!sub) return { handler: async () => { printCommandHelp(["session"]); return EXIT_ERROR; } };
+      switch (sub) {
+        case "list":
+          return { handler: async () => (await import("./commands/session/list")).sessionListHandler() };
+        case "delete":
+          return { handler: async (ctx) => (await import("./commands/session/delete")).sessionDeleteHandler(ctx.invocation.positionals[0]) };
+        case "export":
+          return { handler: async (ctx) => (await import("./commands/session/export")).sessionExportHandler(ctx.invocation.positionals[0]) };
+        case "import":
+          return { handler: async (ctx) => (await import("./commands/session/import")).sessionImportHandler(ctx.invocation.positionals[0]) };
+      }
+      break;
+
+    case "models":
+      return { handler: async () => (await import("./commands")).modelsHandler() };
+
+    case "auth":
+      return { handler: async () => (await import("./commands")).authHandler() };
+
+    case "debug":
+      if (!sub) return { handler: async () => { printCommandHelp(["debug"]); return EXIT_ERROR; } };
+      switch (sub) {
+        case "paths":
+          return { handler: async () => (await import("./commands/debug/paths")).debugPathsHandler() };
+        case "config":
+          return { handler: async () => (await import("./commands/debug/config")).debugConfigHandler() };
+      }
+      break;
+
+    case "plugin":
+      return { handler: async () => (await import("./commands")).pluginHandler() };
+  }
+
+  return null;
+}
+
+/**
+ * Point d'entrée public du CLI.
+ * @returns le code de sortie (0 ok, 1 erreur, 130 interrupt)
+ */
+export async function runCLI(argv: string[] = process.argv.slice(2)): Promise<number> {
+  if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
+    printRootHelp();
+    return EXIT_OK;
+  }
+
+  const result = parseInvocation(ROOT_SPEC, argv);
+  if ("error" in result) {
+    fail(result.error);
+    return EXIT_ERROR;
+  }
+
+  const { path, spec, positionals, flags } = result;
+
+  if (!path.length) {
+    printRootHelp();
+    return EXIT_OK;
+  }
+
+  if (path.length === 1 && argv[0] === "help") {
+    printCommandHelp(path);
+    return EXIT_OK;
+  }
+
+  const resolved = await resolveHandler(path);
+  if (!resolved) {
+    fail(`Unknown command: ${path.join(" ")}`);
+    printRootHelp();
+    return EXIT_ERROR;
+  }
+
+  const ctx: CommandContext = {
+    invocation: { path, spec, positionals, flags },
+    stderr: (line?: string) => println(line ?? ""),
+    stdout: writeOut,
+  };
+
+  try {
+    const exitCode = await resolved.handler(ctx);
+    return typeof exitCode === "number" ? exitCode : EXIT_OK;
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+    return EXIT_ERROR;
+  }
+}
+
+/** Bootstrap exécuté quand le fichier est lancé directement. */
 if (require.main === module) {
-  runCLI().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  runCLI()
+    .then((code) => process.exit(code))
+    .catch((err) => {
+      fail(err instanceof Error ? err.message : String(err));
+      process.exit(EXIT_ERROR);
+    });
 }

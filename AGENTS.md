@@ -146,12 +146,32 @@ npm run dev
 
 ### Autonomous CLI Usage:
 ```bash
-# Run task using default Build Agent
-npx tsx apps/web/bin/soryos-code.ts run "<prompt>"
+# Help (command tree, flags, exit codes)
+npx tsx packages/cli/src/index.ts --help
 
-# Run task using specific agent role
-npx tsx apps/web/bin/soryos-code.ts run "<prompt>" --agent plan
+# Run a task with the default Build Agent
+npx tsx packages/cli/src/index.ts run "<prompt>"
+
+# Run a task with a specific agent role
+npx tsx packages/cli/src/index.ts run "<prompt>" --agent plan
+
+# Machine-readable output (NDJSON on stdout)
+npx tsx packages/cli/src/index.ts run "<prompt>" --format json
+
+# Session management (real JSON persistence under .soryos/cli-sessions/)
+npx tsx packages/cli/src/index.ts session list
+npx tsx packages/cli/src/index.ts session export <id>
+
+# Diagnostics
+npx tsx packages/cli/src/index.ts auth
+npx tsx packages/cli/src/index.ts models
+npx tsx packages/cli/src/index.ts debug paths
 ```
+
+The CLI (`packages/cli`) and the web app (`apps/web`) share the **same engine**: both call
+`@soryos/agent`'s `agentRuntime.run()`. The CLI is a thin terminal adapter (stdout = data,
+stderr = chrome, exit codes 0/1/130); the web app is an SSE adapter over the same runtime.
+Details: `packages/cli/AGENTS.md`.
 
 ---
 
@@ -174,10 +194,12 @@ Before making any edit:
 - **Agent Configuration** (`@soryos/agent`): Runtime with streaming, providers abstraction, and types
 - **Plugin System** (`@soryos/plugin`): Promise-based plugin authoring API + loader + real disk storage backend
 - **Theme System** (`@soryos/theme`): OKLCH color math + schema + expansion + resolution
+- **CLI v2** (`@soryos/cli`): declarative command tree (Spec maison, zero dep) + lazy handlers, `run`/`session`/`models`/`auth`/`debug`/`plugin` commands, NDJSON `--format json`, stdout/stderr discipline, exit codes 0/1/130, real JSON session persistence under `.soryos/cli-sessions/`
 - **Cleanup**: dead packages (`jobs`, `shared`, `editor`, `platform`, `ui`) and fake providers/placeholders removed; docs corrected to match reality
 - **Vibra Code Audit**: Complete documentation in `docs/audit/vibra-code/`
 
 ### 🔄 In Progress
+- **Shared CLI/GUI interface layer**: extract the `run` logic into a reusable function so the CLI and the web app render the same engine events identically (plan in `packages/cli/AGENTS.md`)
 - **Durable session persistence**: NOT implemented (in-memory only today) — would replace `@soryos/session`'s Map with a real store
 - **Queued background jobs**: NOT implemented — build for real before claiming
 

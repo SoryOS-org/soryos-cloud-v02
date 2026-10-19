@@ -12,7 +12,10 @@
     "@soryos/bus": "*",
     "@soryos/core": "*",
     "@soryos/execution": "*",
+    "@soryos/permissions": "*",
     "@soryos/schema": "*",
-    "@soryos/tool": "*"
+    "@soryos/session": "*",
+    "@soryos/tool": "*",
+    "@soryos/workspace": "*"
   }
 }
