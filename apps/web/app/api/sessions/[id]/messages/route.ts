@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sessionStore } from "@soryos/session";
-import { agentRuntime } from "@soryos/agent";
-import { validateChatImages, type ChatImageAttachment, type SessionData } from "@soryos/schema";
+import { workspaceManager } from "@soryos/workspace";
+import { runPipeline, type RunPipelineResult } from "@soryos/agent";
 
-/**
- * Envoie un message à une session et démarre l'agent.
- * Utilise UNIQUEMENT @soryos/* - Aucune logique métier ici.
- */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const session: SessionData | undefined = sessionStore.get(id);
+  const session = sessionStore.get(id);
 
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
@@ -29,33 +25,34 @@ export async function POST(
     return NextResponse.json({ error: "Message content required" }, { status: 400 });
   }
 
-  let images: ChatImageAttachment[] | undefined;
+  let images;
   if (body.images !== undefined) {
+    const { validateChatImages } = await import("@soryos/schema");
     const imageError = validateChatImages(body.images);
     if (imageError) {
       return NextResponse.json({ error: `Invalid images: ${imageError}` }, { status: 400 });
     }
-    images = body.images as ChatImageAttachment[];
+    images = body.images as any;
   }
 
-  // Crée un stream SSE qui délègue à @soryos/agent
+  // Push user message into session
+  const now = () => new Date().toISOString();
+  const userMessageId = `user-${Date.now()}`;
+  session.messages.push({
+    id: userMessageId,
+    role: "user",
+    content,
+    ...(images && images.length > 0 ? { images } : {}),
+    created_at: now(),
+  });
+
   const encoder = new TextEncoder();
-  
   const stream = new ReadableStream({
     async start(controller) {
       let assistantText = "";
-      const now = () => new Date().toISOString();
-      session.messages.push({
-        id: `user-${Date.now()}`,
-        role: "user",
-        content,
-        ...(images && images.length > 0 ? { images } : {}),
-        created_at: now(),
-      });
       const startIndex = session.messages.length;
       let errorText = "";
-      session.agent_running = true;
-      sessionStore.save(session);
+      sessionStore.update(id, { agent_running: true });
 
       function send(event: any) {
         if (event?.type === "text" && event.delta) assistantText += event.delta;
@@ -68,36 +65,38 @@ export async function POST(
       }
 
       try {
-        await agentRuntime.run({
-          sessionId: id,
-          modelId: body.model,
-          agentId: body.agent,
-          emit: send,
-        });
+        const pipelineResult = await runPipeline(
+          { sessionId: id, agentId: body.agent, modelId: body.model, apiKey: body.apiKey },
+          (event) => send({ ...event, timestamp: Date.now() }),
+        );
+
+        if (pipelineResult.status === "completed") {
+          const updated = sessionStore.get(id);
+          const stored = updated ?? session;
+          const assistantMessages = stored.messages.slice(startIndex).filter((m) => m.role === "assistant");
+          const last = assistantMessages.at(-1);
+          if (last) {
+            if (assistantText.trim().length > last.content.length) last.content = assistantText.trim();
+            if (errorText) last.content = `${last.content}${errorText}`.trim();
+            sessionStore.update(id, { messages: stored.messages });
+          } else {
+            stored.messages.push({
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: `${assistantText}${errorText}`.trim() || "⚠️ Aucune réponse reçue du fournisseur IA.",
+              created_at: now(),
+            });
+            sessionStore.update(id, { messages: stored.messages });
+          }
+          send({ type: "done", data: { stepsExecuted: pipelineResult.session.messages.length, toolsExecuted: 0 } });
+        } else {
+          send({ type: "error", message: pipelineResult.error });
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         send({ type: "error", message: msg });
       } finally {
-        // The planner may have replaced the stored session object via
-        // sessionStore.update(); always finish on the fresh reference so we
-        // never clobber its assistant message, todos or model selection.
-        const current = sessionStore.get(id) ?? session;
-        const stored = current.messages.slice(startIndex).filter((m) => m.role === "assistant");
-        const last = stored[stored.length - 1];
-        if (last) {
-          if (assistantText.trim().length > last.content.length) last.content = assistantText.trim();
-          if (errorText) last.content = `${last.content}${errorText}`.trim();
-        } else {
-          current.messages.push({
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content:
-              `${assistantText}${errorText}`.trim() || "⚠️ Aucune réponse reçue du fournisseur IA.",
-            created_at: now(),
-          });
-        }
-        current.agent_running = false;
-        sessionStore.save(current);
+        sessionStore.update(id, { agent_running: false });
         try {
           controller.close();
         } catch {

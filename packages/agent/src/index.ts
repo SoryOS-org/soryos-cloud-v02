@@ -9,6 +9,7 @@ export * from './session-compactor';
 export * from './error-handler';
 export * from './llm-client';
 export * from './provider';
+export * from './run-pipeline';
 
 import { llmClient } from './llm-client';
 import { registerTaskTool } from './subagents';

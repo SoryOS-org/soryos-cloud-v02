@@ -17,6 +17,7 @@ import { cliSessionStore } from "../cli-session-store";
 import { CommandContext, CommandHandler } from "../framework/spec";
 import { bold, dim, cyan, warn, danger, green, yellow, red, blue, println, fail, emitNdjson, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT, readStdinIfPiped } from "../framework/ui";
 import { SessionTargetFlags, ModelFlags, FormatFlags, PermissionFlags, str, bool } from "../framework/flags";
+import { runPipeline, type RunPipelineResult } from "@soryos/agent";
 
 interface RunFlags {
   session?: string;
@@ -138,10 +139,9 @@ export const runHandler: CommandHandler = async (ctx) => {
 
   const session = await resolveSession(flags, prompt);
   session.confirmDangerous = bool(flags, "auto");
-  // Contrat @soryos/session : getOrCreate() puis save() (save échoue si l'id est inconnu)
+
   sessionStore.getOrCreate(session.id);
   sessionStore.save(session);
-  // Workspace local = répertoire courant (l'agent terminal travaille dans le projet)
   workspaceManager.getOrCreateWorkspace(session.id, {
     environment: "local",
     providerId: "local",
@@ -246,25 +246,41 @@ export const runHandler: CommandHandler = async (ctx) => {
       }
     });
 
-    await agentRuntime.run({
-      sessionId: session.id,
-      modelId: session.model,
-      agentId,
-      apiKey: creds.apiKey,
-      emit: (e: any) => {
-        if (e.type === "text" && e.delta) {
+    const pipelineResult = await runPipeline(
+      {
+        sessionId: session.id,
+        agentId,
+        modelId: session.model,
+        apiKey: creds.apiKey,
+      },
+      (event: any) => {
+        if (event.type === "text" && event.delta) {
           if (formatJson) {
           } else if (!process.stdout.isTTY) {
-            process.stdout.write(e.delta as string);
+            process.stdout.write(event.delta as string);
           } else {
-            process.stderr.write(e.delta as string);
+            process.stderr.write(event.delta as string);
           }
         }
       },
-    });
+    );
 
-    const updated = sessionStore.get(session.id);
-    if (updated) await cliSessionStore.save(updated);
+    if (pipelineResult.status === "completed") {
+      const updatedSession = pipelineResult.session;
+      await cliSessionStore.save(updatedSession);
+      if (!formatJson) {
+        println(bold(green(`✔ Task completed`)));
+      }
+      resultCode = EXIT_OK;
+    } else {
+      const failMessage = pipelineResult.error;
+      if (!formatJson) {
+        println(danger(`Error: ${failMessage}`));
+      } else {
+        emitNdjson({ type: "error", sessionId: session.id, message: failMessage });
+      }
+      resultCode = EXIT_ERROR;
+    }
   } catch (err: any) {
     if (!formatJson) println(danger(`Error: ${err?.message ?? err}`));
     else emitNdjson({ type: "error", sessionId: session.id, message: err?.message ?? String(err) });

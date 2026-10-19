@@ -1,18 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sessionStore } from "@soryos/session";
 import { agentRuntime } from "@soryos/agent";
-import type { SessionData } from "@soryos/schema";
+import { sessionStore } from "@soryos/session";
+import { workspaceManager } from "@soryos/workspace";
+import { runPipeline, type RunPipelineResult } from "@soryos/agent";
 
-/**
- * Démarre l'exécution de l'agent pour une session.
- * Utilise UNIQUEMENT @soryos/* - Aucune logique métier ici.
- */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const session: SessionData | undefined = sessionStore.get(id);
+  const session = sessionStore.get(id);
 
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
@@ -22,12 +19,32 @@ export async function POST(
     return new NextResponse("Session already running", { status: 409 });
   }
 
-  // Crée un stream SSE qui délègue à @soryos/agent
+  const body = await req.json().catch(() => ({}));
+  const agentId = body.agent || "build";
+  const modelId = body.model;
+  const { provider, apiKey } = (() => {
+    if (body.apiKey) return { provider: "Google Gemini", apiKey: body.apiKey };
+    if (process.env.GEMINI_API_KEY) return { provider: "Google Gemini", apiKey: process.env.GEMINI_API_KEY };
+    if (process.env.GOOGLE_API_KEY) return { provider: "Google", apiKey: process.env.GOOGLE_API_KEY };
+    if (process.env.OPENAI_API_KEY) return { provider: "OpenAI", apiKey: process.env.OPENAI_API_KEY };
+    if (process.env.MISTRAL_API_KEY) return { provider: "Mistral", apiKey: process.env.MISTRAL_API_KEY };
+    return { provider: null, apiKey: null };
+  })();
+
+  if (!apiKey) {
+    return NextResponse.json({ error: "API key required" }, { status: 401 });
+  }
+
   const encoder = new TextEncoder();
-  
+
   const stream = new ReadableStream({
     async start(controller) {
+      const now = () => new Date().toISOString();
+      let errorText = "";
+      sessionStore.update(id, { agent_running: true });
+
       function send(event: any) {
+        if (event?.type === "error") errorText += `\n\n⚠️ ${event.message || "Erreur inconnue"}`;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         } catch {
@@ -36,19 +53,27 @@ export async function POST(
       }
 
       try {
-        // executePlan pauses when agent_running is explicitly false; mark the
-        // session as running for the duration of this stream.
-        sessionStore.update(id, { agent_running: true });
-        await agentRuntime.run({ sessionId: id, emit: send });
+        const pipelineResult = await runPipeline(
+          { sessionId: id, agentId, modelId, apiKey },
+          (event) => send({ ...event, timestamp: Date.now() }),
+        );
+
+        if (pipelineResult.status === "completed") {
+          const updated = sessionStore.get(id);
+          const stored = updated ?? session;
+          const assistantText = stored.messages.filter((m) => m.role === "assistant").pop()?.content || "";
+          if (assistantText && assistantText !== stored.messages.at(-1)?.content) {
+            sessionStore.update(id, { messages: stored.messages });
+          }
+          send({ type: "done", data: { stepsExecuted: pipelineResult.session.messages.length, toolsExecuted: 0 } });
+        } else {
+          send({ type: "error", message: pipelineResult.error });
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         send({ type: "error", message: msg });
       } finally {
-        const current = sessionStore.get(id);
-        if (current) {
-          current.agent_running = false;
-          sessionStore.save(current);
-        }
+        sessionStore.update(id, { agent_running: false });
         try {
           controller.close();
         } catch {
