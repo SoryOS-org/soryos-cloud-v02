@@ -6,6 +6,9 @@ import {
   ZEN_PAID_MODELS,
   ZEN_DEFAULT_MODEL,
   isZenModelUsable,
+  mergeZenCatalog,
+  prettifyModelId,
+  fetchZenModels,
 } from "@soryos/provider/models-zen";
 import { credentialManager, isPublicGatewayKey, PUBLIC_GATEWAY_KEY } from "@soryos/credentials";
 
@@ -46,6 +49,31 @@ describe("catalogue OpenCode Zen", () => {
     expect(provider.getDefaultModel()).toBe(ZEN_DEFAULT_MODEL);
     // L'endpoint est celui de la passerelle d'inférence.
     expect(provider.getEndpoint()).toContain("opencode.ai");
+  });
+});
+
+describe("catalogue Zen en direct", () => {
+  it("fusionne la liste en direct avec le catalogue statique", () => {
+    const live = ["big-pickle", "brand-new-model-free"];
+    const merged = mergeZenCatalog(live);
+
+    expect(merged.map((m) => m.id)).toEqual(live);
+    // Le modèle connu garde ses métadonnées.
+    expect(merged[0].name).toBe("Big Pickle");
+    // Le modèle inconnu reçoit un nom lisible + le statut free (suffixe -free).
+    expect(merged[1].name).toBe("Brand New Model Free");
+    expect(merged[1].free).toBe(true);
+  });
+
+  it("rend les ids lisibles", () => {
+    expect(prettifyModelId("beam-free")).toBe("Beam Free");
+    expect(prettifyModelId("mimo-v2.6-flash-free")).toBe("Mimo V2.6 Flash Free");
+    expect(prettifyModelId("nemotron-3.5-super-vl-free")).toBe("Nemotron 3.5 Super VL Free");
+  });
+
+  it("échoue proprement sans réseau (null → catalogue statique)", async () => {
+    const live = await fetchZenModels("http://127.0.0.1:9/inference/v1", 500);
+    expect(live).toBeNull();
   });
 });
 

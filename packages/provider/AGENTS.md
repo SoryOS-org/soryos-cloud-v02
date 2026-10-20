@@ -47,10 +47,33 @@ Mécanisme adapté du projet opencode de référence :
 **pas** `api.opencode.ai/api/v1`, qui est l'API console). Surchargeable via
 `OPENCODE_BASE_URL`.
 
+### Catalogue EN DIRECT (prioritaire sur le statique)
+
+La passerelle expose `GET {endpoint}/models` — **ça répond même sans clé**.
+C'est la source de vérité : le catalogue statique (`ZEN_MODELS`, 120 modèles)
+est un instantané de la référence et devient périmé (modèles retirés → 410,
+`upstream unavailable`, etc.).
+
+- `fetchZenModels(endpoint)` → liste réelle servie par la passerelle
+- `mergeZenCatalog(liveIds)` → fusion : un id vivant garde ses métadonnées
+  (nom, description, coût, free tier), un id inconnu reçoit une entrée
+  minimale avec un nom lisible (`prettifyModelId`)
+- `OpenCodeProvider.refreshModels()` → rafraîchit le catalogue (best effort,
+  timeout 8 s) ; en cas d'échec le catalogue statique reste utilisé
+- Le CLI appelle `refreshLiveModels()` avant d'afficher les modèles
+  (`soryos-code models`, picker `/model`)
+- Le modèle par défaut est recalculé sur la liste vivante (un modèle gratuit
+  vivant)
+
 ### Limite réelle du free tier (honnête)
 La passerelle répond `403 FreeTierError` : « OpenCode's free tier can only be
 used from within OpenCode ». Le contrôle est côté serveur et résiste à un
 simple User-Agent (vérifié : même avec `User-Agent: opencode/...` → 403).
+
+Constat mesuré en direct (API réelle) : avec la clé publique, les modèles
+**existants** renvoient tous `403 FreeTierError`. Les ids du catalogue périmé
+renvoient `upstream unavailable` (erreur de modèle, avant le contrôle) — d'où
+l'importance du catalogue en direct.
 
 Nous ne nous faisons **PAS** passer pour le client OpenCode :
 - le User-Agent envoyé est `soryos-code/1.0 (+https://github.com/SoryOS-org/...)`

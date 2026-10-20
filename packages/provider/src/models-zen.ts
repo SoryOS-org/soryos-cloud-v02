@@ -1620,3 +1620,99 @@ export function isZenModelUsable(modelId: string, apiKey: string | undefined | n
   if (!apiKey || apiKey === "public") return model.free;
   return true;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Catalogue EN DIRECT                                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Modèle tel que renvoyé par la passerelle. */
+export interface ZenLiveModel {
+  id: string;
+  created?: number;
+  owned_by?: string;
+}
+
+/**
+ * Liste RÉELLE des modèles servis par la passerelle.
+ * L'endpoint `/models` répond même sans clé : c'est la source de vérité
+ * (le catalogue statique ci-dessus est un instantané et devient périmé).
+ * @returns la liste, ou null si l'appel échoue (→ on garde le catalogue statique)
+ */
+export async function fetchZenModels(
+  endpoint: string,
+  timeoutMs = 8000,
+): Promise<ZenLiveModel[] | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${endpoint.replace(/\/$/, "")}/models`, {
+      signal: controller.signal,
+      headers: { "User-Agent": "soryos-code/1.0" },
+    });
+    if (!res.ok) return null;
+    const payload = (await res.json()) as { data?: ZenLiveModel[] };
+    if (!Array.isArray(payload?.data)) return null;
+    return payload.data.filter((m) => typeof m?.id === "string" && m.id.length > 0);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Transforme un id de modèle en nom lisible : "beam-free" → "Beam Free",
+ * "mimo-v2.6-flash-free" → "Mimo V2.6 Flash Free".
+ */
+export function prettifyModelId(id: string): string {
+  return id
+    .split("-")
+    .filter(Boolean)
+    .map((part) => {
+      // "v2.6" → "V2.6", "3.5" → "3.5", "free" → "Free", "vl" → "VL"
+      if (/^v\d/i.test(part)) return part.toUpperCase();
+      if (part === "vl") return "VL";
+      if (part === "free") return "Free";
+      if (part === "pro" || part === "mini" || part === "max" || part === "lite") {
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      }
+      if (/^\d/.test(part)) return part;
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
+}
+
+/**
+ * Fusionne le catalogue statique avec la liste en direct :
+ * - un id vivant garde ses métadonnées (nom, description, coût, free tier)
+ * - un id vivant inconnu du catalogue reçoit une entrée minimale
+ * - un id statique absent de la liste en direct est CONSERVÉ mais marqué
+ *   `retired` (le modèle n'est plus servi : le proposer serait mensonger)
+ */
+export function mergeZenCatalog(liveIds: string[]): ZenModel[] {
+  const live = new Set(liveIds);
+  const known = new Map(ZEN_MODELS.map((m) => [m.id, m]));
+
+  const merged: ZenModel[] = [];
+  for (const id of live) {
+    const meta = known.get(id);
+    if (meta) {
+      merged.push(meta);
+      continue;
+    }
+    merged.push({
+      id,
+      name: prettifyModelId(id),
+      description: "Modèle servi par la passerelle OpenCode Zen.",
+      cost: { input: 0, output: 0 },
+      contextLength: "—",
+      contextTokens: 0,
+      supportsTools: true,
+      supportsReasoning: false,
+      supportsAttachments: false,
+      // Par convention, les ids « -free » du gateway sont le free tier.
+      free: id.endsWith("-free") || id === "big-pickle",
+    });
+  }
+  return merged;
+}

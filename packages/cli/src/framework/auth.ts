@@ -136,6 +136,23 @@ export function modelNeedsKey(
 }
 
 /**
+ * Rafraîchit le catalogue du provider Zen depuis la passerelle (liste en
+ * direct). Sans réseau ou en cas d'échec, le catalogue statique reste used.
+ * @returns le nombre de modèles servis, ou null si l'appel a échoué
+ */
+export async function refreshLiveModels(): Promise<number | null> {
+  try {
+    const provider = aiProviderRegistry.getRequiredProvider("opencode-zen") as {
+      refreshModels?: () => Promise<number | null>;
+    };
+    if (typeof provider.refreshModels !== "function") return null;
+    return await provider.refreshModels();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Résout le provider à utiliser et sa clé.
  * @param options.cwd répertoire de lecture du provider actif
  * @returns le contexte provider (clé null si non configuré)

@@ -7,9 +7,13 @@
 import { aiProviderRegistry } from "@soryos/provider";
 import { println, bold, cyan, dim, green, EXIT_OK } from "../framework/ui";
 import { str } from "../framework/flags";
+import { refreshLiveModels } from "../framework/auth";
 
 export async function modelsHandler(): Promise<number> {
   const filter = str({} as Record<string, unknown>, "provider");
+
+  // Catalogue Zen rafraîchi depuis la passerelle (la liste statique est périmée).
+  await refreshLiveModels();
 
   const providers = aiProviderRegistry.getAllProviders();
   let total = 0;

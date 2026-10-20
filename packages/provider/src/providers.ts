@@ -21,7 +21,7 @@ function freeTierHint(errorBody: string): string | null {
 
 /** User-Agent honnête : nous ne nous faisons PAS passer pour le client OpenCode. */
 const SORYOS_USER_AGENT = "soryos-code/1.0 (+https://github.com/SoryOS-org/soryos-cloud-v02)";
-import { ZEN_MODELS, ZEN_DEFAULT_MODEL } from "./models-zen";
+import { ZEN_MODELS, ZEN_DEFAULT_MODEL, fetchZenModels, mergeZenCatalog, type ZenModel } from "./models-zen";
 import { resolveLiveCredential } from "./credential-bridge";
 import { buildGoogleContents, buildOpenAIMessages, buildAnthropicMessages } from "./helpers";
 
@@ -981,6 +981,11 @@ export class OpenCodeProvider extends GenericAIProvider {
   readonly id = "opencode-zen" as const;
   readonly name = "OpenCode Zen" as const;
 
+  /** Ids servis en direct (null = catalogue statique). */
+  private liveIds: string[] | null = null;
+  /** Catalogue fusionné (statique + direct). */
+  private merged: ZenModel[] | null = null;
+
   constructor() {
     super("opencode-zen");
   }
@@ -990,11 +995,22 @@ export class OpenCodeProvider extends GenericAIProvider {
   }
 
   getDefaultModel(): string {
+    // Si la liste en direct est connue, on prend un modèle gratuit VIVANT.
+    if (this.merged?.length) {
+      const liveFree = this.merged.filter((m) => m.free);
+      const pick =
+        liveFree.find((m) => m.id === "big-pickle") ??
+        liveFree.find((m) => m.supportsTools && m.contextTokens >= 200000) ??
+        liveFree.find((m) => m.supportsTools) ??
+        liveFree[0];
+      if (pick) return pick.id;
+    }
     return ZEN_DEFAULT_MODEL;
   }
 
   listModels(): ModelInfo[] {
-    return ZEN_MODELS.map((m) => ({
+    const source = this.merged ?? ZEN_MODELS;
+    return source.map((m) => ({
       id: m.id,
       name: m.name,
       providerId: this.id,
@@ -1007,6 +1023,23 @@ export class OpenCodeProvider extends GenericAIProvider {
       supportsTools: m.supportsTools,
       cost: m.cost,
     }));
+  }
+
+  /**
+   * Rafraîchit le catalogue depuis la passerelle (liste en direct).
+   * @returns le nombre de modèles servis, ou null si l'appel a échoué
+   */
+  async refreshModels(): Promise<number | null> {
+    const live = await fetchZenModels(this.getEndpoint());
+    if (!live?.length) return null;
+    this.liveIds = live.map((m) => m.id);
+    this.merged = mergeZenCatalog(this.liveIds);
+    return this.merged.length;
+  }
+
+  /** Le catalogue a-t-il été rafraîchi depuis la passerelle ? */
+  get isLive(): boolean {
+    return this.merged !== null;
   }
 
   protected getApiKeyEnvVar(): string {

@@ -432,7 +432,8 @@ picker and the agent's `models` tool all read it.
 ### OpenCode Zen — free tier par clé publique
 
 `@soryos/provider` embarque le **catalogue réel** de la passerelle opencode.ai
-(120 modèles, 38 gratuits) :
+(120 modèles dans le catalogue statique, **rafraîchi en direct** depuis
+`GET opencode.ai/inference/v1/models` → 85 modèles servis à l'instant T) :
 
 ```bash
 soryos-code auth switch opencode-zen   # provider actif

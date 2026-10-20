@@ -18,7 +18,7 @@ import { bold, cyan, dim, green, red, yellow, warn, danger, println, requireInte
 import { executeRun } from "./engine";
 import { pick, ok, info } from "./terminal";
 import { TerminalInput, parseMouseEvent, type TerminalKey } from "./input";
-import { aiProviderIds, defaultModelFor, detectProviderAndKey, modelNeedsKey, providerOwnsModel, resolveProviderContext } from "./auth";
+import { aiProviderIds, defaultModelFor, detectProviderAndKey, modelNeedsKey, providerOwnsModel, refreshLiveModels, resolveProviderContext } from "./auth";
 import { isPublicGatewayKey } from "@soryos/credentials";
 import { getActiveProvider, setActiveProvider } from "./provider-state";
 import { cliSessionStore } from "../cli-session-store";
@@ -167,6 +167,10 @@ async function handleSlash(
       if (args.length) {
         return { action: "continue", model: args[0] };
       }
+
+      // Catalogue Zen rafraîchi depuis la passerelle (liste en direct) :
+      // le catalogue statique devient périmé (modèles retirés).
+      await refreshLiveModels();
 
       // Clé courante : le free tier du gateway public n'expose que les
       // modèles gratuits (mécanisme opencode).
