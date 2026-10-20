@@ -6,6 +6,7 @@
  */
 
 import type { SessionData } from "@soryos/schema";
+import type { SessionSource } from "@soryos/session";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -69,9 +70,17 @@ export class CliSessionStore {
     const dir = sessionsDir(cwd);
     await mkdir(dir, { recursive: true });
     const file = fileFor(session.id, cwd);
-    const tmp = `${file}.tmp`;
-    await writeFile(tmp, JSON.stringify(session, null, 2), "utf8");
-    await rename(tmp, file);
+    // Nom de fichier temporaire UNIQUE par écriture : deux écritures
+    // concurrentes sur la même session ne peuvent pas s'écraser (rename
+    // ENOENT) ni perdre la version la plus récente.
+    const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    try {
+      await writeFile(tmp, JSON.stringify(session, null, 2), "utf8");
+      await rename(tmp, file);
+    } catch (err) {
+      await rm(tmp, { force: true });
+      throw err;
+    }
     return file;
   }
 
@@ -107,3 +116,43 @@ export class CliSessionStore {
 }
 
 export const cliSessionStore = new CliSessionStore();
+
+/**
+ * Adaptateur `SessionSource` du store disque — permet d'utiliser la résolution
+ * partagée (`resolveSessionTarget` de @soryos/session) avec les sessions CLI.
+ */
+export const cliSessionSource: SessionSource = {
+  async get(id: string): Promise<SessionData | null> {
+    return cliSessionStore.get(id);
+  },
+  async list(): Promise<SessionData[]> {
+    return cliSessionStore.list();
+  },
+  create(data: Partial<SessionData>): SessionData {
+    const id = data.id ?? `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const session: SessionData = {
+      id,
+      title: data.title ?? "CLI Session",
+      sandbox_id: data.sandbox_id ?? `sandbox-${id}`,
+      sandbox_state: data.sandbox_state ?? "running",
+      environment: data.environment ?? "local",
+      providerId: data.providerId ?? "local",
+      model: data.model ?? "gemini-2.5-flash",
+      provider: data.provider ?? "Google Gemini",
+      created_at: data.created_at ?? new Date().toISOString(),
+      messages: data.messages ?? [],
+      files: data.files ?? {},
+      openFiles: data.openFiles ?? [],
+      activeFile: data.activeFile ?? "",
+      preview_url: data.preview_url ?? null,
+      needs_run: data.needs_run ?? false,
+      agent_running: data.agent_running ?? false,
+      cwd: data.cwd ?? process.cwd(),
+      ...data,
+    };
+    return session;
+  },
+  async persist(session: SessionData): Promise<void> {
+    await cliSessionStore.save(session);
+  },
+};

@@ -3,7 +3,7 @@
 > **Goal**: the terminal CLI and the web GUI must drive the **same engine** and render the
 > **same events**, without duplicating logic in either adapter.
 >
-> **Status**: Phase 0 (CLI v2) ✅ · Phase 1 (`runPipeline` extracted) ✅ · Phases 2-4 pending.
+> **Status**: Phase 0 (CLI v2) ✅ · Phase 1 (`runPipeline` extracted) ✅ · Phase 2 (shared session resolution) ✅ · Phases 3-4 pending.
 
 ---
 
@@ -99,39 +99,54 @@ Responsibilities (moved **verbatim** from the adapters, not rewritten):
 
 ---
 
-## Phase 2 — Shared session resolution
+## Phase 2 — Shared session resolution ✅ DONE
 
 **Objective**: `--session` / `--continue` / `--fork` behave identically in CLI and GUI.
 
 ### 2.1 New module `packages/session/src/target.ts`
 
 ```ts
+export interface SessionSource {
+  get(id: string): Promise<SessionData | null>;
+  list(): Promise<SessionData[]>;
+  create(data: Partial<SessionData>): SessionData;
+  /** Persistance AWAITÉE (les stores disque l'implémentent). */
+  persist?(session: SessionData): Promise<void>;
+}
+
 export type SessionTarget =
-  | { kind: "new"; id?: string }
+  | { kind: "new"; id: string }
   | { kind: "resume"; id: string }
   | { kind: "fork"; sourceId: string; id: string };
 
 export async function resolveSessionTarget(
-  opts: { sessionId?: string; continueLast?: boolean; fork?: boolean; title?: string },
-  store: SessionStore,
-): Promise<SessionTarget>;
+  opts: { sessionId?: string; continueLast?: boolean; fork?: boolean; title?: string; cwd?: string; template?: Partial<SessionData> },
+  source: SessionSource,
+): Promise<{ target: SessionTarget; session: SessionData }>;
 ```
 
-Rules (ported from opencode `session-target.ts`, adapted to our store):
+Rules (ported from opencode `session-target.ts`, adapted to our stores):
 - `--fork` without `--session`/`--continue` → honest error
-- `--session <id>` on a missing session → **that id becomes the new session's id** (CLI) / error (GUI, where the id is chosen by the client)
-- `--continue` → most recent session for the current location
+- `--session <id>` on a missing session → **that id becomes the new session's id**
+- `--continue` → most recent session (filtered by `cwd` when provided)
 - `--fork` → copy of the source session with a new id and the same message history
 
+Two implementations are provided:
+- `memorySessionSource` (in `@soryos/session`) — the in-memory store
+- `cliSessionSource` (in `packages/cli`) — the disk store (`.soryos/cli-sessions/`)
+
 ### 2.2 Use it in both adapters
-- CLI: `commands/run.ts` replaces its local `resolveSession()`
-- Web: the `/run` route uses it when the client asks for "continue" or "fork"
+- CLI: `framework/session.ts#resolveCliSession` (used by `run` AND `interactive` — the
+  duplicated local `resolveSession()` implementations were deleted)
+- Web: `POST /api/sessions/[id]/run` accepts `{ target: "continue" | "fork" }` and resolves
+  through the same `resolveSessionTarget` with `memorySessionSource`
 
 ### Acceptance criteria
-- [ ] `soryos-code run "x" -c` resumes the newest session
-- [ ] `soryos-code run "x" --fork` creates a copy with a new id
-- [ ] the GUI can trigger the same three modes
-- [ ] both adapters share **one** implementation (no copy)
+- [x] `soryos-code run "x" -c` resumes the newest session
+- [x] `soryos-code run "x" --fork` creates a copy with a new id
+- [x] the GUI can trigger the same three modes (`target` field)
+- [x] both adapters share **one** implementation (no copy)
+- [x] 15 unit tests in `packages/session/__tests__/target.test.ts`
 
 ---
 
@@ -214,7 +229,7 @@ Add a test that fails if any adapter re-implements run logic:
 | 0 | CLI v2 (declarative tree, `run`/`session`/`models`/`auth`/`debug`/`plugin`, NDJSON, disk sessions) | ✅ done | — |
 | 0.5 | CLI interactive REPL (`interactive`/`i`/`chat`: prompt, history, slash commands) | ✅ done | 0, 1 |
 | 1 | `runPipeline` extracted into `@soryos/agent` | ✅ done | — |
-| 2 | `resolveSessionTarget` in `@soryos/session` | S | Phase 1 |
+| 2 | `resolveSessionTarget` in `@soryos/session` | ✅ done | Phase 1 |
 | 3 | Canonical event contract + 2 renderers + questions/permissions parity | M | Phase 1, 2 |
 | 4 | Parity test harness + CI grep guard | S | Phase 3 |
 

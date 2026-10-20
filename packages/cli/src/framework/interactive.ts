@@ -211,8 +211,9 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
       if (outcome.agentId) agentId = outcome.agentId;
       if (outcome.model) {
         model = outcome.model;
-        session.model = model;
-        sessionStore.save(session);
+        // MISE À JOUR CIBLÉE : ne jamais réécrire l'objet local, il ne
+        // contient pas l'historique (l'agent travaille sur l'objet du store).
+        sessionStore.update(session.id, { model });
         println(green(`✔ Model set to ${model}`));
       }
       if (outcome.action === "exit") {

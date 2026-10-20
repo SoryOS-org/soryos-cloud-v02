@@ -30,8 +30,11 @@ CLI (packages/cli/src/index.ts)
 - `framework/engine.ts#executeRun` is the **only** CLI call site of `runPipeline`.
 - `framework/render.ts#attachRenderer` is the **only** bus→terminal renderer
   (used by both `run` and `interactive` — no duplicated switch statements).
+- `framework/session.ts#resolveCliSession` is the **only** CLI session resolution
+  (it wraps the shared `@soryos/session` `resolveSessionTarget`).
 - The web app calls the same `runPipeline` (`apps/web/app/api/sessions/[id]/messages/route.ts`
-  and `.../run/route.ts`).
+  and `.../run/route.ts`) and the same `resolveSessionTarget`
+  (`.../run/route.ts` with `{ target: "continue" | "fork" }`).
 
 ## Interactive mode (REPL)
 
@@ -105,8 +108,12 @@ The `.soryos/` directory is **gitignored** (local state, not source).
 
 ### Contracts to respect (do not violate)
 - `@soryos/session`: always call `sessionStore.getOrCreate(id)` **before** `sessionStore.save(session)` — `save()` throws if the id is unknown to the in-memory store.
+- `@soryos/session`: session resolution goes through `resolveSessionTarget()` (shared with the GUI) — never re-implement `--session`/`--continue`/`--fork` in the CLI.
+- `@soryos/session`: `SessionSource.persist()` is **awaited** — never fire-and-forget a write, a concurrent write would lose the final state.
 - `@soryos/workspace`: the agent runtime requires a workspace for the session. The CLI creates a **local** workspace rooted at `process.cwd()` (a terminal agent works in the current project), via `workspaceManager.getOrCreateWorkspace(session.id, { environment: "local", providerId: "local", workspacePath: process.cwd() })`.
-- `@soryos/bus`: the CLI subscribes to `globalEventBus.on("*")` and filters by `sessionId`.
+- `@soryos/bus`: the CLI subscribes to `globalEventBus.on("*")` and filters by `sessionId` (see `framework/render.ts`).
+- The session is persisted on **success AND failure** — a failed run must never lose the user message.
+- Never rewrite the whole session object from a stale local copy (`sessionStore.save(localCopy)` drops the history) — use `sessionStore.update(id, { field })`.
 
 ## Shared Engine with the Web App
 

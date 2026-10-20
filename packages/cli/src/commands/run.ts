@@ -12,8 +12,9 @@ import { sessionStore } from "@soryos/session";
 import { workspaceManager } from "@soryos/workspace";
 import { resolvePermissionRequest } from "@soryos/permissions";
 import { executeRun, type RunOutput } from "../framework/engine";
-import { runPipeline, type RunPipelineResult } from "@soryos/agent";
 import { cliSessionStore } from "../cli-session-store";
+import { resolveCliSession } from "../framework/session";
+import { detectProviderAndKey } from "../framework/auth";
 import { CommandContext, CommandHandler } from "../framework/spec";
 import { bold, cyan, dim, green, yellow, red, blue, warn, danger, println, fail, emitNdjson, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT, readStdinIfPiped } from "../framework/ui";
 import { SessionTargetFlags, ModelFlags, FormatFlags, PermissionFlags, str, bool } from "../framework/flags";
@@ -30,79 +31,7 @@ interface RunFlags {
   __?: string[];
 }
 
-export function detectProviderAndKey(): { provider: string; apiKey: string } | null {
-  const keys: Array<{ name: string; env: string }> = [
-    { name: "Google Gemini", env: "GEMINI_API_KEY" },
-    { name: "Google", env: "GOOGLE_API_KEY" },
-    { name: "OpenAI", env: "OPENAI_API_KEY" },
-    { name: "Mistral", env: "MISTRAL_API_KEY" },
-  ];
-  for (const k of keys) {
-    const v = process.env[k.env];
-    if (v) return { provider: k.name, apiKey: v };
-  }
-  return null;
-}
-
-async function resolveSession(flags: RunFlags): Promise<SessionData> {
-  let session: SessionData | null = null;
-
-  if (flags.fork) {
-    if (!flags.continue && !str(flags, "session")) {
-      throw new Error("--fork requires --session or --continue");
-    }
-    const source = str(flags, "session")
-      ? await cliSessionStore.get(flags.session!)
-      : await cliSessionStore.newest();
-    if (!source) throw new Error("No source session to fork");
-    session = {
-      ...source,
-      id: `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      title: flags.title ?? `${source.title} (fork)`,
-      created_at: new Date().toISOString(),
-      messages: source.messages.slice(),
-    };
-  } else if (str(flags, "session")) {
-    session = await cliSessionStore.get(flags.session!);
-    if (!session) {
-      session = newSession(flags.session!, flags);
-    }
-    // DO NOT push user message here — runPipeline does that
-  } else if (bool(flags, "continue")) {
-    session = await cliSessionStore.newest();
-    if (!session) throw new Error("No existing session to continue");
-    // DO NOT push user message here — runPipeline does that
-  } else {
-    session = newSession(undefined, flags);
-  }
-
-  return session!;
-}
-
-function newSession(explicitId: string | undefined, flags: RunFlags): SessionData {
-  const id = explicitId ?? `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const now = new Date().toISOString();
-  return {
-    id,
-    title: flags.title ?? "CLI Session",
-    sandbox_id: `sandbox-${id}`,
-    sandbox_state: "running",
-    environment: "local",
-    providerId: "local",
-    model: str(flags, "model") ?? "gemini-2.5-flash",
-    provider: detectProviderAndKey()?.provider ?? "Google Gemini",
-    created_at: now,
-    messages: [], // user message appended by runPipeline
-    files: {},
-    preview_url: null,
-    needs_run: false,
-    agent_running: false,
-    cwd: process.cwd(),
-    openFiles: [],
-    activeFile: "",
-    confirmDangerous: bool(flags, "auto"),
-  };
-}
+export { detectProviderAndKey };
 
 export const runHandler: CommandHandler = async (ctx) => {
   const inv = ctx.invocation;
@@ -118,7 +47,13 @@ export const runHandler: CommandHandler = async (ctx) => {
   const creds = detectProviderAndKey();
   if (!creds) return fail("API key required: set GEMINI_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY");
 
-  const session = await resolveSession(flags);
+  let session: SessionData;
+  try {
+    // Résolution partagée (identique CLI ↔ GUI).
+    ({ session } = await resolveCliSession(flags));
+  } catch (err: any) {
+    return fail(err?.message ?? String(err));
+  }
   session.confirmDangerous = bool(flags, "auto");
 
   // Persist session BEFORE run (so session exists for listeners)
@@ -169,8 +104,13 @@ export const runHandler: CommandHandler = async (ctx) => {
       formatJson,
     });
 
+    // La session est TOUJOURS persistée (succès OU échec) : le message
+    // utilisateur et l'historique ne doivent jamais être perdus.
+    if (outcome.session) {
+      await cliSessionStore.save(outcome.session);
+    }
+
     if (outcome.status === "completed") {
-      await cliSessionStore.save(outcome.session!);
       if (!formatJson) {
         println(bold(green(`✔ Task completed`)));
       }
@@ -185,6 +125,15 @@ export const runHandler: CommandHandler = async (ctx) => {
       resultCode = EXIT_ERROR;
     }
   } catch (err: any) {
+    // Even on an unexpected error, keep the session (message + history).
+    const latest = sessionStore.get(session.id);
+    if (latest) {
+      try {
+        await cliSessionStore.save(latest);
+      } catch {
+        /* la persistance ne doit jamais masquer l'erreur d'origine */
+      }
+    }
     if (!formatJson) println(danger(`Error: ${err?.message ?? err}`));
     else emitNdjson({ type: "error", sessionId: session.id, message: err?.message ?? String(err) });
     resultCode = EXIT_ERROR;

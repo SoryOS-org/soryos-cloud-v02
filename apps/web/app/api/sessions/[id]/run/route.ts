@@ -1,16 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { agentRuntime } from "@soryos/agent";
-import { sessionStore } from "@soryos/session";
-import { workspaceManager } from "@soryos/workspace";
-import { runPipeline, type RunPipelineResult } from "@soryos/agent";
+import { sessionStore, memorySessionSource, resolveSessionTarget } from "@soryos/session";
+import { runPipeline } from "@soryos/agent";
 
+/**
+ * Démarre l'exécution de l'agent pour une session.
+ * La résolution de la cible (reprise / fork) passe par la logique PARTAGÉE
+ * `@soryos/session` — identique au CLI (`--continue`, `--fork`).
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const session = sessionStore.get(id);
+  const body = await req.json().catch(() => ({}));
+  const target = body.target as "session" | "continue" | "fork" | undefined;
 
+  let sessionId = id;
+  if (target === "continue" || target === "fork") {
+    try {
+      const resolved = await resolveSessionTarget(
+        {
+          continueLast: target === "continue",
+          fork: target === "fork",
+          sessionId: target === "fork" ? id : undefined,
+        },
+        memorySessionSource,
+      );
+      sessionId = resolved.session.id;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+  }
+
+  const session = sessionStore.get(sessionId);
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
@@ -19,17 +42,15 @@ export async function POST(
     return new NextResponse("Session already running", { status: 409 });
   }
 
-  const body = await req.json().catch(() => ({}));
   const agentId = body.agent || "build";
   const modelId = body.model;
-  const { provider, apiKey } = (() => {
-    if (body.apiKey) return { provider: "Google Gemini", apiKey: body.apiKey };
-    if (process.env.GEMINI_API_KEY) return { provider: "Google Gemini", apiKey: process.env.GEMINI_API_KEY };
-    if (process.env.GOOGLE_API_KEY) return { provider: "Google", apiKey: process.env.GOOGLE_API_KEY };
-    if (process.env.OPENAI_API_KEY) return { provider: "OpenAI", apiKey: process.env.OPENAI_API_KEY };
-    if (process.env.MISTRAL_API_KEY) return { provider: "Mistral", apiKey: process.env.MISTRAL_API_KEY };
-    return { provider: null, apiKey: null };
-  })();
+  const apiKey =
+    body.apiKey ||
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.MISTRAL_API_KEY ||
+    null;
 
   if (!apiKey) {
     return NextResponse.json({ error: "API key required" }, { status: 401 });
@@ -39,12 +60,9 @@ export async function POST(
 
   const stream = new ReadableStream({
     async start(controller) {
-      const now = () => new Date().toISOString();
-      let errorText = "";
-      sessionStore.update(id, { agent_running: true });
+      sessionStore.update(sessionId, { agent_running: true });
 
       function send(event: any) {
-        if (event?.type === "error") errorText += `\n\n⚠️ ${event.message || "Erreur inconnue"}`;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         } catch {
@@ -53,27 +71,24 @@ export async function POST(
       }
 
       try {
-        const pipelineResult = await runPipeline(
-          { sessionId: id, agentId, modelId, apiKey },
+        const result = await runPipeline(
+          { sessionId, agentId, modelId, apiKey },
           (event) => send({ ...event, timestamp: Date.now() }),
         );
 
-        if (pipelineResult.status === "completed") {
-          const updated = sessionStore.get(id);
-          const stored = updated ?? session;
-          const assistantText = stored.messages.filter((m) => m.role === "assistant").pop()?.content || "";
-          if (assistantText && assistantText !== stored.messages.at(-1)?.content) {
-            sessionStore.update(id, { messages: stored.messages });
-          }
-          send({ type: "done", data: { stepsExecuted: pipelineResult.session.messages.length, toolsExecuted: 0 } });
+        if (result.status === "completed") {
+          send({
+            type: "done",
+            data: { stepsExecuted: result.session.messages.length, toolsExecuted: 0 },
+          });
         } else {
-          send({ type: "error", message: pipelineResult.error });
+          send({ type: "error", message: result.error });
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         send({ type: "error", message: msg });
       } finally {
-        sessionStore.update(id, { agent_running: false });
+        sessionStore.update(sessionId, { agent_running: false });
         try {
           controller.close();
         } catch {

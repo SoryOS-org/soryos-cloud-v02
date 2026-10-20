@@ -9,5 +9,11 @@
     "@soryos/core": "*",
     "@soryos/schema": "*",
     "@soryos/workspace": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  },
+  "scripts": {
+    "test:engine": "vitest run"
   }
 }

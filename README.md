@@ -412,7 +412,7 @@ Web run/messages    → @soryos/agent (runPipeline) → @soryos/tool → @soryos
 1. ✅ Extract `run` logic into `@soryos/agent` (`runPipeline`) — Phase 1 done
 2. ✅ Make the CLI a thin adapter over it (`framework/engine.ts` + `framework/render.ts`)
 3. ✅ Make the web app use the same function and render events to SSE
-4. ⏳ Shared session resolution (`--session/--continue/--fork`) in `@soryos/session` — Phase 2
+4. ✅ Shared session resolution (`--session/--continue/--fork`) in `@soryos/session` (`resolveSessionTarget`) — Phase 2 done
 5. ⏳ Canonical event contract + questions/permissions parity — Phase 3
 
 ## What's Ported from OpenCode

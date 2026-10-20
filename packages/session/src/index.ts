@@ -1,5 +1,8 @@
 
 import { SessionData, ProviderId } from "@soryos/schema";
+import type { SessionSource } from "./target";
+
+export * from "./target";
 
 declare global {
   // Survives Next.js route-bundle module duplication (dev + prod chunks)
@@ -76,3 +79,19 @@ export class SessionStore {
 }
 
 export const sessionStore = new SessionStore();
+
+/**
+ * Adaptateur `SessionSource` du store in-memory — permet d'utiliser la
+ * résolution partagée (`resolveSessionTarget`) avec le store par défaut.
+ */
+export const memorySessionSource: SessionSource = {
+  async get(id: string): Promise<SessionData | null> {
+    return sessionStore.get(id) ?? null;
+  },
+  async list(): Promise<SessionData[]> {
+    return sessionStore.getAll();
+  },
+  create(data: Partial<SessionData>): SessionData {
+    return sessionStore.create(data);
+  },
+};
