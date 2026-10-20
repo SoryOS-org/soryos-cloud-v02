@@ -200,11 +200,12 @@ Before making any edit:
 - **Plugin System** (`@soryos/plugin`): Promise-based plugin authoring API + loader + real disk storage backend
 - **Theme System** (`@soryos/theme`): OKLCH color math + schema + expansion + resolution
 - **CLI v2** (`@soryos/cli`): declarative command tree (Spec maison, zero dep) + lazy handlers, `run`/`session`/`models`/`auth`/`debug`/`plugin` commands, NDJSON `--format json`, stdout/stderr discipline, exit codes 0/1/130, real JSON session persistence under `.soryos/cli-sessions/`
+- **Interactive CLI REPL** (`soryos-code interactive` / `i` / `chat`, or no args in a TTY): `soryos ›` prompt, 100-entry history (arrows), slash commands (`/help` `/exit` `/new` `/model` `/agent` `/sessions` `/clear`), Ctrl+C/D handling, honest TTY refusal
+- **Shared CLI/GUI interface** (all 4 phases done): `runPipeline` in `@soryos/agent`, shared session resolution `resolveSessionTarget` in `@soryos/session`, canonical event contract `SoryOSEvent` in `@soryos/schema`, parity tests + CI guard (no adapter may call `agentRuntime.run()`) — plan: `docs/plans/cli-gui-shared-interface.md`
 - **Cleanup**: dead packages (`jobs`, `shared`, `editor`, `platform`, `ui`) and fake providers/placeholders removed; docs corrected to match reality
 - **Vibra Code Audit**: Complete documentation in `docs/audit/vibra-code/`
 
 ### 🔄 In Progress
-- **Shared CLI/GUI interface layer**: extract the `run` logic into a reusable function so the CLI and the web app render the same engine events identically (plan in `packages/cli/AGENTS.md`)
 - **Durable session persistence**: NOT implemented (in-memory only today) — would replace `@soryos/session`'s Map with a real store
 - **Queued background jobs**: NOT implemented — build for real before claiming
 

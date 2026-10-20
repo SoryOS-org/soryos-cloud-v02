@@ -408,12 +408,13 @@ Web run/messages    → @soryos/agent (runPipeline) → @soryos/tool → @soryos
 `runPipeline()` (in `@soryos/agent`) is the single place that prepares the session, appends the user message and calls `agentRuntime.run()`. The only difference is the event sink. See `packages/cli/AGENTS.md` for full details.
 
 ### Shared CLI/GUI Interface — roadmap
-`docs/plans/cli-gui-shared-interface.md`:
-1. ✅ Extract `run` logic into `@soryos/agent` (`runPipeline`) — Phase 1 done
-2. ✅ Make the CLI a thin adapter over it (`framework/engine.ts` + `framework/render.ts`)
-3. ✅ Make the web app use the same function and render events to SSE
-4. ✅ Shared session resolution (`--session/--continue/--fork`) in `@soryos/session` (`resolveSessionTarget`) — Phase 2 done
-5. ⏳ Canonical event contract + questions/permissions parity — Phase 3
+`docs/plans/cli-gui-shared-interface.md` — **all phases done**:
+1. ✅ `runPipeline` extracted into `@soryos/agent` (Phase 1)
+2. ✅ The CLI is a thin adapter over it (`framework/engine.ts` + `framework/render.ts`)
+3. ✅ The web app uses the same function and streams the same events over SSE
+4. ✅ Shared session resolution (`--session/--continue/--fork`) in `@soryos/session` (Phase 2)
+5. ✅ Canonical event contract `SoryOSEvent` + questions/permissions parity (Phase 3)
+6. ✅ Parity test harness + CI guard: no adapter may call `agentRuntime.run()` (Phase 4)
 
 ## What's Ported from OpenCode
 

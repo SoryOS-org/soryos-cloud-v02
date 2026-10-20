@@ -2,7 +2,7 @@ import { SessionData, ChatImageAttachment, toSoryOSEvent, type SoryOSEvent } fro
 import { sessionStore } from "@soryos/session";
 import { workspaceManager } from "@soryos/workspace";
 import { globalEventBus } from "@soryos/bus";
-import { agentRuntime } from "./runtime";
+import { agentRuntime, type AgentRuntime } from "./runtime";
 import type { AgentRunOptions } from "./types";
 
 export interface RunPipelineOptions {
@@ -20,7 +20,29 @@ export type RunPipelineResult =
   | { status: "completed"; session: SessionData }
   | { status: "failed"; session: SessionData | null; error: string };
 
+/**
+ * Crée un pipeline branché sur un runtime donné.
+ * Utile pour les tests (runtime avec un faux LLM) : l'API publique
+ * `runPipeline()` reste liée au runtime global.
+ */
+export function createRunPipeline(runtime: AgentRuntime) {
+  return async function runPipelineWith(
+    options: RunPipelineOptions,
+    emit: (event: SoryOSEvent) => void,
+  ): Promise<RunPipelineResult> {
+    return runPipelineInternal(runtime, options, emit);
+  };
+}
+
 export async function runPipeline(
+  options: RunPipelineOptions,
+  emit: (event: SoryOSEvent) => void,
+): Promise<RunPipelineResult> {
+  return runPipelineInternal(agentRuntime, options, emit);
+}
+
+async function runPipelineInternal(
+  runtime: AgentRuntime,
   options: RunPipelineOptions,
   emit: (event: SoryOSEvent) => void,
 ): Promise<RunPipelineResult> {
@@ -96,7 +118,7 @@ export async function runPipeline(
   };
 
   try {
-    const outcome = await agentRuntime.run(runOptions);
+    const outcome = await runtime.run(runOptions);
     const updated = sessionStore.get(sessionId);
 
     if (outcome === "failed") {

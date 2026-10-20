@@ -10,7 +10,7 @@
 export * from "@soryos/schema";
 
 // Types spécifiques à l'application web
-import type { MessageBlock, ToolStep, AgentEvent, SoryOSEvent, EnvironmentType, ProviderId } from "@soryos/schema";
+import type { MessageBlock, ToolStep, SoryOSEvent, EnvironmentType, ProviderId } from "@soryos/schema";
 
 export interface GitHubSessionContext {
   username?: string;

@@ -297,7 +297,9 @@ export interface AgentEventPayload {
   data: Record<string, unknown>;
 }
 
-// 6. SSE Event Types (for streaming)
+// 6. Legacy SSE event types — DEPRECATED since Phase 3 (shared CLI/GUI interface).
+// Use the canonical contract instead: `SoryOSEvent` (see ./events.ts).
+/** @deprecated Use `SoryOSEvent` from `@soryos/schema` (canonical contract). */
 export type AgentEvent =
   | { type: "text"; delta: string }
   | { type: "tool_start"; id: string; name: string; input: unknown }

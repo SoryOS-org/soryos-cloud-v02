@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionData } from "@/lib/agent-engine";
+import { sessionStore } from "@soryos/session";
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const session = getSessionData(id);
+  const session = sessionStore.getOrCreate(id);
 
   if (!session) {
     return new NextResponse("Session not found", { status: 404 });

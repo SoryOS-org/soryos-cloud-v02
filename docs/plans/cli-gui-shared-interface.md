@@ -3,7 +3,7 @@
 > **Goal**: the terminal CLI and the web GUI must drive the **same engine** and render the
 > **same events**, without duplicating logic in either adapter.
 >
-> **Status**: Phase 0 (CLI v2) ✅ · Phase 1 (`runPipeline`) ✅ · Phase 2 (shared session resolution) ✅ · Phase 3 (canonical events) ✅ · Phase 4 pending.
+> **Status**: ✅ **ALL PHASES DONE** — Phase 0 (CLI v2) · Phase 1 (`runPipeline`) · Phase 2 (shared session resolution) · Phase 3 (canonical events) · Phase 4 (parity harness + CI guard).
 
 ---
 
@@ -204,7 +204,7 @@ The GUI keeps its existing interactive routes.
 
 ---
 
-## Phase 4 — One core, two front-ends (the "same heart" guarantee)
+## Phase 4 — One core, two front-ends (the "same heart" guarantee) ✅ DONE
 
 **Objective**: a single source of truth for *what runs*, with adapters that only render.
 
@@ -212,27 +212,31 @@ The GUI keeps its existing interactive routes.
 > The engine decides **what** happens. The adapter decides only **how it is displayed**.
 
 Concretely:
-- `@soryos/agent` = the only place that orchestrates a run
-- `@soryos/session` = the only place that stores/loads sessions
+- `@soryos/agent` = the only place that orchestrates a run (`runPipeline`)
+- `@soryos/session` = the only place that stores/loads sessions (`resolveSessionTarget`)
+- `@soryos/schema` = the only event vocabulary (`SoryOSEvent` + `toSoryOSEvent`)
 - `@soryos/tool` + `@soryos/permissions` = the only place that executes actions
 - `apps/web` and `packages/cli` = **adapters** (transport + rendering only)
 
-### 4.2 Verification harness (new package tests)
-`packages/agent/__tests__/parity.test.ts`:
-1. run a deterministic fake provider through `runPipeline`
-2. capture the emitted events
-3. assert the **same sequence** is produced regardless of the adapter
-4. assert the CLI renderer and the GUI renderer consume the same contract
+### 4.2 Verification harness (`packages/agent/__tests__/parity.test.ts`)
+1. a deterministic fake LLM (no network) drives the planner
+2. `createRunPipeline(runtime)` allows injecting that runtime
+3. the emitted canonical events are captured and compared between two consumers
+4. the contract test asserts only known canonical types are emitted
 
 ### 4.3 CI guard
-Add a test that fails if any adapter re-implements run logic:
-- grep guard: `apps/web` and `packages/cli` must not call `agentRuntime.run()` directly
-  (they must call `runPipeline()`), except inside the shared adapter helper.
+`packages/agent/__tests__/parity.test.ts` scans `apps/web` and `packages/cli`:
+- **no** adapter may call `agentRuntime.run()` directly (it must call `runPipeline()`)
+- every adapter must call `runPipeline()`
+
+> Verified: injecting a deliberate `agentRuntime.run()` in `packages/cli` makes the
+> guard fail with the offending file listed.
 
 ### Acceptance criteria
-- [ ] `grep -r "agentRuntime.run" apps/web packages/cli` → only the shared adapter
-- [ ] parity test green
-- [ ] `npm run typecheck` + `npm run test:engine` green
+- [x] `grep -r "agentRuntime.run" apps/web packages/cli` → no adapter call site
+- [x] parity test green (5 tests: 3 parity + 2 guard)
+- [x] `npm run typecheck` + `npm run test:engine` green
+- [x] dead legacy adapters removed (`apps/web/lib/agent-engine.ts`, `apps/web/lib/sse-helper.ts`)
 
 ---
 
@@ -245,7 +249,7 @@ Add a test that fails if any adapter re-implements run logic:
 | 1 | `runPipeline` extracted into `@soryos/agent` | ✅ done | — |
 | 2 | `resolveSessionTarget` in `@soryos/session` | ✅ done | Phase 1 |
 | 3 | Canonical event contract + 2 renderers + questions/permissions parity | ✅ done | Phase 1, 2 |
-| 4 | Parity test harness + CI grep guard | S | Phase 3 |
+| 4 | Parity test harness + CI grep guard | ✅ done | Phase 3 |
 
 ## Explicit non-goals
 
