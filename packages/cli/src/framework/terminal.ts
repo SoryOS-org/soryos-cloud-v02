@@ -18,7 +18,7 @@ export interface BoxOptions {
   title?: string;
   /** Lignes du contenu (sans bordure). */
   lines?: string[];
-  /** Largeur totale (bordures incluses). */
+  /** Largeur totale (bordures incluses). Par défaut : adaptative. */
   width?: number;
 }
 
@@ -32,11 +32,58 @@ const BOX = {
   vertical: "│",
 };
 
-function visibleLength(text: string): number {
-  // Ignore les codes ANSI pour l'alignement.
+/** Largeur du terminal (80 par défaut). */
+export function terminalWidth(): number {
+  const cols = process.stderr.columns;
+  if (typeof cols === "number" && cols > 0) return cols;
+  const env = Number(process.env.COLUMNS);
+  if (Number.isFinite(env) && env > 0) return env;
+  return 80;
+}
+
+/**
+ * Largeur de boîte adaptive : elle suit le terminal, avec une marge et des
+ * bornes (une boîte plus large que l'écran déborde et casse l'alignement).
+ */
+export function boxWidth(max = 100): number {
+  const cols = terminalWidth();
+  return Math.max(20, Math.min(cols - 2, max));
+}
+
+/** Longueur VISIBLE d'un texte (les codes ANSI ne comptent pas). */
+export function visibleLength(text: string): number {
   return text.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").length;
 }
 
+/**
+ * Tronque un texte à une largeur VISIBLE, en préservant les codes ANSI
+ * (et en refermant les couleurs ouvertes). L'ellipse compte dans la largeur.
+ */
+export function truncateVisible(text: string, max: number): string {
+  if (max <= 0) return "";
+  if (visibleLength(text) <= max) return text;
+
+  const limit = Math.max(1, max - 1); // place pour l'ellipse
+  let visible = 0;
+  let out = "";
+  let i = 0;
+  while (i < text.length && visible < limit) {
+    if (text[i] === "\x1b") {
+      const match = /^\x1b\[[0-9;?]*[a-zA-Z]/.exec(text.slice(i));
+      if (match) {
+        out += match[0];
+        i += match[0].length;
+        continue;
+      }
+    }
+    out += text[i];
+    visible++;
+    i++;
+  }
+  return `${out}…\x1b[0m`;
+}
+
+/** Complète un texte à la largeur visible exacte. */
 function pad(text: string, width: number): string {
   const len = visibleLength(text);
   return len >= width ? text : text + " ".repeat(width - len);
@@ -44,18 +91,23 @@ function pad(text: string, width: number): string {
 
 /**
  * Dessine une boîte bordée (retourne les lignes, sans saut de ligne).
+ * Le contenu est TRONQUÉ à la largeur intérieure : la bordure droite reste
+ * alignée quelle que soit la longueur du texte.
  */
 export function drawBox(opts: BoxOptions): string[] {
-  const width = Math.max(20, opts.width ?? 60);
-  const inner = width - 4; // "│ " + " │"
+  const width = opts.width ?? boxWidth();
+  const inner = Math.max(4, width - 4); // "│ " + " │"
 
-  const title = opts.title
-    ? ` ${opts.title} `
-    : "";
+  // Le titre est tronqué pour que la bordure haute garde la largeur exacte.
+  const rawTitle = opts.title ? ` ${opts.title} ` : "";
+  const title = rawTitle ? truncateVisible(rawTitle, Math.max(0, width - 4)) : "";
   const topFill = Math.max(0, width - 2 - visibleLength(title));
   const top = `${BOX.topLeft}${title}${BOX.horizontal.repeat(topFill)}${BOX.topRight}`;
 
-  const body = (opts.lines ?? []).map((line) => `${BOX.vertical} ${pad(line, inner)} ${BOX.vertical}`);
+  const body = (opts.lines ?? []).map((line) => {
+    const clipped = truncateVisible(line, inner);
+    return `${BOX.vertical} ${pad(clipped, inner)} ${BOX.vertical}`;
+  });
 
   return [top, ...body, `${BOX.bottomLeft}${BOX.horizontal.repeat(width - 2)}${BOX.bottomRight}`];
 }
@@ -154,7 +206,6 @@ export async function pick<T>(
   opts: PickerOptions<T>,
   input: TerminalInput,
 ): Promise<T | null> {
-  const visible = opts.visible ?? 10;
   const output = process.stderr;
 
   let query = "";
@@ -178,6 +229,12 @@ export async function pick<T>(
   };
 
   const render = () => {
+    // --- largeur adaptative ---------------------------------------------
+    const width = boxWidth();
+    const inner = Math.max(4, width - 4);
+    const narrow = inner < 46; //终端 étroit (mobile) : on allège
+    const visible = Math.max(3, Math.min(opts.visible ?? 10, narrow ? 6 : 12, Math.max(3, Math.floor((process.stderr.rows ?? 24) / 2))));
+
     const list = filtered();
 
     if (index >= list.length) index = Math.max(0, list.length - 1);
@@ -207,29 +264,51 @@ export async function pick<T>(
       const active = i === index;
       const marker = active ? cyan("❯") : " ";
       const title = active ? bold(cyan(option.title)) : option.title;
-      const desc = option.description ? dim(` — ${truncate(option.description, 60)}`) : "";
+
+      // La description est tronquée à la place DISPONIBLE (jamais de
+      // débordement : la bordure droite doit rester alignée).
+      const prefix = `${marker} ${title}`;
+      const used = visibleLength(prefix);
+      const room = inner - used - 3;
+      const desc = !narrow && option.description && room > 6 ? dim(` — ${option.description}`) : "";
+      const clippedDesc = desc ? truncateVisible(desc, room) : "";
+
       map.set(lines.length, i);
-      lines.push(`${marker} ${title}${desc}`);
+      lines.push(`${prefix}${clippedDesc}`);
     }
 
     if (list.length > visible) {
       map.set(lines.length, -1);
-      lines.push(dim(`  … ${list.length - visible} more (↑/↓)`));
+      lines.push(dim(`  … ${list.length - visible} more`));
     }
 
     map.set(lines.length, -1);
-    lines.push(dim(opts.hint ?? "↑/↓ navigate · enter select · esc cancel"));
+    lines.push(
+      dim(
+        narrow
+          ? "↑/↓ · enter · esc"
+          : (opts.hint ?? "↑/↓ navigate · enter select · esc cancel"),
+      ),
+    );
 
     lineToItem = map;
 
     // Efface l'affichage précédent et redessine.
-    if (lastHeight > 0) output.write(`\x1b[${lastHeight}A`);
-    const box = drawBox({ title: opts.title, lines, width: 72 });
+    if (lastHeight > 0) {
+      output.write(`\x1b[${lastHeight}A`);
+    } else {
+      // Premier rendu : on revient en début de ligne, sinon la boîte
+      // commence à la suite du prompt et dépasse la largeur du terminal.
+      output.write("\r\x1b[K");
+    }
+    const box = drawBox({ title: opts.title, lines, width });
     for (const line of box) output.write(`${line}\n`);
     lastHeight = box.length;
   };
 
-  return new Promise<T | null>((resolve) => {
+  let cleanupResize: (() => void) | null = null;
+
+  const promise = new Promise<T | null>((resolve) => {
     let done = false;
 
     const finish = (value: T | null) => {
@@ -237,6 +316,7 @@ export async function pick<T>(
       done = true;
       pop();
       input.disableMouse();
+      cleanupResize?.();
       if (lastHeight > 0) {
         output.write(`\x1b[${lastHeight}A`);
         output.write("\x1b[0J");
@@ -323,6 +403,11 @@ export async function pick<T>(
     // Traçabilité souris (tap sur tablette / PC tactile).
     input.enableMouse();
 
+    // Redessin au redimensionnement du terminal (rotation d'un mobile).
+    const onResize = () => render();
+    process.stdout.on("resize", onResize);
+    cleanupResize = () => process.stdout.off("resize", onResize);
+
     // Position du curseur AVANT le premier rendu : elle donne la ligne écran
     // du haut de la boîte (indispensable pour convertir un clic en option).
     void input
@@ -333,7 +418,11 @@ export async function pick<T>(
       .finally(() => {
         render();
       });
+
+    return promise;
   });
+
+  return promise;
 }
 
 /** Tronque un texte long. */

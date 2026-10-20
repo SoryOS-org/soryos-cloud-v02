@@ -14,7 +14,7 @@ import { SessionData } from "@soryos/schema";
 import { sessionStore } from "@soryos/session";
 import { aiProviderRegistry } from "@soryos/provider";
 import { PROVIDER_REGISTRY } from "@soryos/credentials";
-import { bold, cyan, dim, green, red, warn, danger, println, requireInteractive, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT } from "./ui";
+import { bold, cyan, dim, green, red, yellow, warn, danger, println, requireInteractive, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT } from "./ui";
 import { executeRun } from "./engine";
 import { pick, ok, info } from "./terminal";
 import { TerminalInput, parseMouseEvent, type TerminalKey } from "./input";
@@ -176,12 +176,13 @@ async function handleSlash(
           options: models.map((m) => ({
             value: m.id,
             title: m.name,
+            // L'id d'abord (c'est l'info actionnable), puis le provider.
             description: [
-              `${m.providerName} · ${m.id}`,
-              m.badge ? `[${m.badge}]` : undefined,
-              m.isFree ? "free" : undefined,
-              m.isDefault ? "★" : undefined,
-              m.id === current ? "(current)" : undefined,
+              m.id,
+              m.isDefault ? yellow("★") : undefined,
+              m.badge ? yellow(`[${m.badge}]`) : undefined,
+              m.isFree ? green("free") : undefined,
+              m.id === current ? cyan("(current)") : undefined,
             ]
               .filter(Boolean)
               .join(" "),

@@ -52,6 +52,18 @@ sequences (`\x1b[<button;col;rowM`) and split them into individual characters.
 Our decoder keeps them intact → **tap / click selection works** (tablet,
 touchscreen PC).
 
+### Responsive rendering (boxes / cards)
+- The box width follows the terminal (`boxWidth()` = `min(cols - 2, 100)`, min 20).
+- Every content line is **truncated to the inner width** (`truncateVisible`, ANSI-aware)
+  → the right border NEVER drifts, whatever the length of the text.
+- Narrow terminals (< 46 inner columns): the descriptions are dropped, the hint
+  is shortened, and fewer rows are shown.
+- The box is redrawn on `resize` (rotation of a phone).
+- The first draw starts at column 0 (the prompt line is cleared), otherwise the
+  box would start after the prompt and overflow the screen.
+- `drawBox` guarantees: every line of the box has the SAME visible width
+  (unit-tested in `packages/cli/__tests__/terminal.test.ts`).
+
 ### Touch & mouse support
 - `input.enableMouse()` turns on SGR mouse reporting (`?1000h` + `?1006h`).
 - A **tap** (press + release on the same line) selects the option under the

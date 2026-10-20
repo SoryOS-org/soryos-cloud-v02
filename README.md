@@ -414,6 +414,7 @@ Analyse de la demande…
 - Slash commands : `/help` `/exit` `/new` `/model` `/provider` `/agent` `/auth` `/sessions` `/clear`
 - `/model` et `/provider` ouvrent un **picker** avec **champ de recherche** (tapez pour filtrer), ↑/↓, Entrée
 - **Tactile / souris** : un tap (ou un clic) sur une option la sélectionne, la molette fait défiler ; le tap positionne aussi le curseur dans la ligne de saisie
+- **Adaptatif** : la boîte suit la largeur du terminal (bordures toujours alignées, texte tronqué), se rétrécit sur mobile et se redessine à la rotation
 - Chaque tour est persisté dans `.soryos/cli-sessions/<id>.json`
 - Refusé honnêtement hors TTY (pas de repli silencieux)
 
