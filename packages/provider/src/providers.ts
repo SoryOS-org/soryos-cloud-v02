@@ -5,6 +5,23 @@
 
 import { AIProvider, ModelInfo, GenerateOptions, GenerateResult, StreamOptions, StreamChunk, ResolvedCredential, ProviderConnectionTestResult, ProviderAITestResult } from "./types";
 import { SUPPORTED_AI_MODELS } from "./models";
+
+/**
+ * Message d'erreur actionnable quand la passerelle refuse le free tier.
+ * La passerelle opencode.ai réserve le free tier à son client officiel :
+ * nous ne nous faisons PAS passer pour lui, on explique donc la situation.
+ */
+function freeTierHint(errorBody: string): string | null {
+  if (!errorBody.includes("FreeTierError")) return null;
+  return (
+    " — le free tier d'OpenCode Zen est réservé au client OpenCode officiel. " +
+    "Utilisez votre propre clé (soryos-code auth login opencode-zen) ou un autre provider."
+  );
+}
+
+/** User-Agent honnête : nous ne nous faisons PAS passer pour le client OpenCode. */
+const SORYOS_USER_AGENT = "soryos-code/1.0 (+https://github.com/SoryOS-org/soryos-cloud-v02)";
+import { ZEN_MODELS, ZEN_DEFAULT_MODEL } from "./models-zen";
 import { resolveLiveCredential } from "./credential-bridge";
 import { buildGoogleContents, buildOpenAIMessages, buildAnthropicMessages } from "./helpers";
 
@@ -341,7 +358,7 @@ export class GenericAIProvider implements AIProvider {
       if (!response.ok) {
         const errorBody = await response.text().catch(() => "");
         throw new Error(
-          `${this.name}: HTTP ${response.status}${errorBody ? ` — ${errorBody.slice(0, 400)}` : ""}`
+          `${this.name}: HTTP ${response.status}${errorBody ? ` — ${errorBody.slice(0, 400)}` : ""}${freeTierHint(errorBody) ?? ""}`
         );
       }
 
@@ -384,6 +401,7 @@ export class GenericAIProvider implements AIProvider {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
+        "User-Agent": SORYOS_USER_AGENT,
       },
       body: JSON.stringify({
         model,
@@ -396,7 +414,7 @@ export class GenericAIProvider implements AIProvider {
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
       throw new Error(
-        `${this.name}: HTTP ${response.status}${errorBody ? ` — ${errorBody.slice(0, 400)}` : ""}`
+        `${this.name}: HTTP ${response.status}${errorBody ? ` — ${errorBody.slice(0, 400)}` : ""}${freeTierHint(errorBody) ?? ""}`
       );
     }
     if (!response.body) {
@@ -952,7 +970,12 @@ export class OpenRouterProvider extends GenericAIProvider {
 }
 
 /**
- * OpenCode Provider
+ * OpenCode Zen Provider
+ *
+ * Passerelle opencode.ai. Deux modes :
+ *  - clé personnelle (OPENCODE_API_KEY ou identifiants stockés) → tous les modèles
+ *  - clé publique `public` (aucune clé) → FREE TIER : seuls les modèles dont
+ *    le coût d'entrée est 0 sont utilisables (mécanisme opencode).
  */
 export class OpenCodeProvider extends GenericAIProvider {
   readonly id = "opencode-zen" as const;
@@ -963,15 +986,27 @@ export class OpenCodeProvider extends GenericAIProvider {
   }
 
   getEndpoint(): string {
-    return process.env.OPENCODE_BASE_URL || "https://api.opencode.ai/api/v1";
+    return process.env.OPENCODE_BASE_URL || "https://opencode.ai/inference/v1";
   }
 
   getDefaultModel(): string {
-    return "opencode-zen-3.5";
+    return ZEN_DEFAULT_MODEL;
   }
 
   listModels(): ModelInfo[] {
-    return SUPPORTED_AI_MODELS.filter(m => m.providerId === "opencode-zen");
+    return ZEN_MODELS.map((m) => ({
+      id: m.id,
+      name: m.name,
+      providerId: this.id,
+      providerName: this.name,
+      isFree: m.free,
+      badge: m.free ? "Free Tier" : undefined,
+      description: m.description,
+      contextLength: m.contextLength,
+      pricing: m.free ? "free" : `$${m.cost.input}/$${m.cost.output} per Mtok`,
+      supportsTools: m.supportsTools,
+      cost: m.cost,
+    }));
   }
 
   protected getApiKeyEnvVar(): string {

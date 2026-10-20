@@ -18,7 +18,8 @@ import { bold, cyan, dim, green, red, yellow, warn, danger, println, requireInte
 import { executeRun } from "./engine";
 import { pick, ok, info } from "./terminal";
 import { TerminalInput, parseMouseEvent, type TerminalKey } from "./input";
-import { aiProviderIds, defaultModelFor, detectProviderAndKey, providerOwnsModel } from "./auth";
+import { aiProviderIds, defaultModelFor, detectProviderAndKey, modelNeedsKey, providerOwnsModel, resolveProviderContext } from "./auth";
+import { isPublicGatewayKey } from "@soryos/credentials";
 import { getActiveProvider, setActiveProvider } from "./provider-state";
 import { cliSessionStore } from "../cli-session-store";
 
@@ -67,6 +68,7 @@ function availableModels(): Array<{
   badge?: string;
   isFree?: boolean;
   isDefault?: boolean;
+  pricing?: string;
 }> {
   const out: Array<{
     id: string;
@@ -77,6 +79,7 @@ function availableModels(): Array<{
     badge?: string;
     isFree?: boolean;
     isDefault?: boolean;
+    pricing?: string;
   }> = [];
 
   for (const provider of aiProviderRegistry.getAllProviders()) {
@@ -86,6 +89,7 @@ function availableModels(): Array<{
       description?: string;
       badge?: string;
       isFree?: boolean;
+      pricing?: string;
     }> = [];
     try {
       models = provider.listModels() as typeof models;
@@ -112,6 +116,7 @@ function availableModels(): Array<{
         badge: model.badge,
         isFree: model.isFree,
         isDefault: model.id === defaultModel,
+        pricing: model.pricing,
       });
     }
   }
@@ -163,6 +168,12 @@ async function handleSlash(
         return { action: "continue", model: args[0] };
       }
 
+      // Clé courante : le free tier du gateway public n'expose que les
+      // modèles gratuits (mécanisme opencode).
+      const context = await resolveProviderContext();
+      const apiKey = context.apiKey;
+      const publicOnly = isPublicGatewayKey(apiKey) && context.providerId === "opencode-zen";
+
       const models = availableModels();
       if (!models.length) {
         info("No model in the registry.");
@@ -172,7 +183,7 @@ async function handleSlash(
       const current = session.model;
       const chosen = await pick<string>(
         {
-          title: "Select a model",
+          title: publicOnly ? "Select a model (free tier)" : "Select a model",
           options: models.map((m) => ({
             value: m.id,
             title: m.name,
@@ -182,6 +193,8 @@ async function handleSlash(
               m.isDefault ? yellow("★") : undefined,
               m.badge ? yellow(`[${m.badge}]`) : undefined,
               m.isFree ? green("free") : undefined,
+              m.pricing && !m.isFree ? dim(m.pricing) : undefined,
+              modelNeedsKey(m.providerId, m.id, apiKey) ? red("key required") : undefined,
               m.id === current ? cyan("(current)") : undefined,
             ]
               .filter(Boolean)

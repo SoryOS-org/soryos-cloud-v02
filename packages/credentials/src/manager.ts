@@ -8,6 +8,18 @@ import {
 
 export type AuthMethod = "github_oauth" | "api_key" | "api_token" | "service_account";
 
+/**
+ * Clé publique du gateway (OpenCode Zen).
+ * Sans clé personnelle, la passerelle accepte `Bearer public` et ne sert
+ * que le free tier (modèles à coût d'entrée nul).
+ */
+export const PUBLIC_GATEWAY_KEY = "public";
+
+/** Cette clé est-elle la clé publique du gateway (free tier) ? */
+export function isPublicGatewayKey(apiKey: string | undefined | null): boolean {
+  return !apiKey || apiKey === PUBLIC_GATEWAY_KEY;
+}
+
 export interface ProviderDefinition {
   id: string;
   name: string;
@@ -311,7 +323,9 @@ export class CredentialManager {
       };
     }
 
-    // 4. Provider-specific public default
+    // 4. Provider-specific public default (free tier).
+    //    OpenCode Zen accepte la clé publique `public` SANS configuration :
+    //    seul le free tier (modèles à coût d'entrée nul) est alors utilisable.
     if (providerId === "opencode-zen") {
       return {
         providerId,
@@ -320,7 +334,7 @@ export class CredentialManager {
         isConfigured: true,
         keyLength: 6,
         fingerprint: computeFingerprint("public"),
-        apiKey: "public",
+        apiKey: PUBLIC_GATEWAY_KEY,
       };
     }
 

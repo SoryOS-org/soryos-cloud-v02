@@ -429,6 +429,23 @@ One single source of truth: `@soryos/provider`'s `SUPPORTED_AI_MODELS`
 · 4 OpenCode Zen · 2 Grok · 2 Cursor). The `models` command, the `/model`
 picker and the agent's `models` tool all read it.
 
+### OpenCode Zen — free tier par clé publique
+
+`@soryos/provider` embarque le **catalogue réel** de la passerelle opencode.ai
+(120 modèles, 38 gratuits) :
+
+```bash
+soryos-code auth switch opencode-zen   # provider actif
+soryos-code run "..." --model big-pickle
+```
+
+- Sans clé personnelle, la passerelle reçoit la clé publique `public`
+- Le picker ne propose alors que les **modèles gratuits** (les payants sont
+  marqués « key required »)
+- ⚠️ La passerelle réserve le free tier à son client officiel (erreur
+  `403 FreeTierError`) : le message est remonté tel quel, avec la solution
+  (`soryos-code auth login opencode-zen` ou un autre provider)
+
 ### Provider credentials (`soryos-code auth`)
 
 ```bash

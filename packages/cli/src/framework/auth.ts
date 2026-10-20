@@ -11,7 +11,7 @@
  * choisi par l'utilisateur doit être celui qui est utilisé).
  */
 
-import { credentialManager, PROVIDER_REGISTRY } from "@soryos/credentials";
+import { credentialManager, PROVIDER_REGISTRY, isPublicGatewayKey } from "@soryos/credentials";
 import { aiProviderRegistry } from "@soryos/provider";
 import { getActiveProvider } from "./provider-state";
 
@@ -91,6 +91,48 @@ export function providerOwnsModel(providerId: string, modelId: string): boolean 
   } catch {
     return false;
   }
+}
+
+/**
+ * Un modèle est-il utilisable avec la clé courante ?
+ * - clé publique du gateway → uniquement le free tier (coût d'entrée nul)
+ * - clé personnelle → tous les modèles du provider
+ */
+export function isModelUsable(
+  providerId: string,
+  modelId: string,
+  apiKey: string | null | undefined,
+): boolean {
+  if (providerId !== "opencode-zen") return true;
+  if (!isPublicGatewayKey(apiKey)) return true;
+  // Free tier : le modèle doit être gratuit.
+  try {
+    const provider = aiProviderRegistry.getRequiredProvider(providerId);
+    const model = provider.listModels().find((m) => m.id === modelId);
+    if (!model) return false;
+    return model.isFree === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Le modèle nécessite-t-il une clé que l'utilisateur n'a pas ?
+ * - OpenCode Zen en clé publique → les modèles payants du free tier
+ * - autre provider → il faut sa propre clé configurée
+ */
+export function modelNeedsKey(
+  providerId: string,
+  modelId: string,
+  activeApiKey: string | null | undefined,
+): boolean {
+  if (providerId === "opencode-zen") {
+    return !isModelUsable(providerId, modelId, activeApiKey);
+  }
+  const resolved = credentialManager.resolveCredentials(providerId);
+  if (!resolved.isConfigured) return true;
+  // Si le provider du modèle EST le provider actif, on dispose de sa clé.
+  return false;
 }
 
 /**

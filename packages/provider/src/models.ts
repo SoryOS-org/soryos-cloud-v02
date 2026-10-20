@@ -9,6 +9,8 @@ export interface ModelInfo {
   contextLength?: string;
   pricing?: string;
   supportsTools?: boolean;
+  /** Coût par million de tokens (absent = inconnu). 0 = free tier. */
+  cost?: { input: number; output: number };
 }
 
 export const SUPPORTED_AI_MODELS: ModelInfo[] = [
@@ -339,49 +341,6 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
   // =========================================================================
   // OPENCODE ZEN (Accès Public et Modèles Open-Weights)
   // =========================================================================
-  {
-    id: "opencode-zen-3.5",
-    name: "OpenCode Zen 3.5",
-    providerId: "opencode-zen",
-    providerName: "OpenCode Zen",
-    isFree: false,
-    badge: "Par défaut",
-    description: "Modèle par défaut de la passerelle OpenCode Zen.",
-    supportsTools: true,
-  },
-  {
-    id: "opencode-zen-qwen-coder",
-    name: "Qwen 2.5 Coder 32B (Zen)",
-    providerId: "opencode-zen",
-    providerName: "OpenCode Zen",
-    isFree: true,
-    badge: "Zen Free",
-    description: "Le meilleur modèle ouvert spécialisé dans le codage autonome et la résolution de bugs.",
-    contextLength: "128k tokens",
-    supportsTools: true,
-  },
-  {
-    id: "opencode-zen-llama3-instruct",
-    name: "Llama 3.3 70B (Zen)",
-    providerId: "opencode-zen",
-    providerName: "OpenCode Zen",
-    isFree: true,
-    badge: "Zen Free",
-    description: "Modèle ouvert 70B de niveau GPT-4o pour la planification et l'ingénierie logicielle générale.",
-    contextLength: "128k tokens",
-    supportsTools: true,
-  },
-  {
-    id: "opencode-zen-deepseek-r1",
-    name: "DeepSeek R1 Distill (Zen)",
-    providerId: "opencode-zen",
-    providerName: "OpenCode Zen",
-    isFree: true,
-    badge: "Zen Free",
-    description: "Raisonnement logique et décomposition analytique étape par étape sans frais d'API.",
-    contextLength: "128k tokens",
-    supportsTools: true,
-  },
 
   // =========================================================================
   // MISTRAL AI (Séries Codestral & Large 2)
