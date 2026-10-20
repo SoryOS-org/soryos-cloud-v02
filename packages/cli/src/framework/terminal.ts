@@ -8,7 +8,7 @@
 
 import * as readline from "node:readline";
 import { bold, cyan, dim, green, red, yellow } from "./ui";
-import { TerminalInput, type TerminalKey } from "./input";
+import { TerminalInput, parseMouseEvent, type TerminalKey } from "./input";
 
 /* -------------------------------------------------------------------------- */
 /* Boîtes bordées                                                             */
@@ -145,8 +145,8 @@ export interface PickerOptions<T> {
 }
 
 /**
- * Picker interactif : filtre au clavier, ↑/↓ pour naviguer, Entrée pour
- * choisir, Échap pour annuler.
+ * Picker interactif : champ de recherche, ↑/↓ pour naviguer, Entrée pour
+ * choisir, Échap pour annuler, **clic/tap** pour sélectionner directement.
  * @param input gestionnaire de clavier partagé (REPL + picker)
  * @returns la valeur choisie, ou null si annulé
  */
@@ -155,13 +155,18 @@ export async function pick<T>(
   input: TerminalInput,
 ): Promise<T | null> {
   const visible = opts.visible ?? 10;
-  const useFilter = opts.filter !== false && opts.options.length > visible;
   const output = process.stderr;
 
   let query = "";
   let index = 0;
   let offset = 0;
   let lastHeight = 0;
+  /** Ligne de la boîte (dans la boîte) → index d'option (undefined = non sélectionnable). */
+  let lineToItem = new Map<number, number>();
+  /** Ligne écran du haut de la boîte (1-based). */
+  let baseRow = 0;
+  /** Option pressée à la souris (pour confirmer au relâchement). */
+  let pressedItem: number | null = null;
 
   const filtered = (): PickerOption<T>[] => {
     if (!query) return opts.options;
@@ -180,12 +185,14 @@ export async function pick<T>(
     if (index >= offset + visible) offset = index - visible + 1;
 
     const lines: string[] = [];
+    const map = new Map<number, number>();
 
-    if (useFilter) {
-      lines.push(`${dim("Filter:")} ${query}${dim("▌")}`);
-    }
+    // Champ de recherche (toujours actif).
+    map.set(lines.length, -1);
+    lines.push(`${dim("Search:")} ${query}${cyan("▌")}`);
 
     if (!list.length) {
+      map.set(lines.length, -1);
       lines.push(dim("  (no match)"));
     }
 
@@ -194,20 +201,26 @@ export async function pick<T>(
       const option = list[i];
       if (option.category && option.category !== lastCategory) {
         lastCategory = option.category;
+        map.set(lines.length, -1); // en-tête de groupe : non sélectionnable
         lines.push(dim(`  ${option.category}`));
       }
       const active = i === index;
       const marker = active ? cyan("❯") : " ";
       const title = active ? bold(cyan(option.title)) : option.title;
       const desc = option.description ? dim(` — ${truncate(option.description, 60)}`) : "";
+      map.set(lines.length, i);
       lines.push(`${marker} ${title}${desc}`);
     }
 
     if (list.length > visible) {
+      map.set(lines.length, -1);
       lines.push(dim(`  … ${list.length - visible} more (↑/↓)`));
     }
 
+    map.set(lines.length, -1);
     lines.push(dim(opts.hint ?? "↑/↓ navigate · enter select · esc cancel"));
+
+    lineToItem = map;
 
     // Efface l'affichage précédent et redessine.
     if (lastHeight > 0) output.write(`\x1b[${lastHeight}A`);
@@ -223,6 +236,7 @@ export async function pick<T>(
       if (done) return;
       done = true;
       pop();
+      input.disableMouse();
       if (lastHeight > 0) {
         output.write(`\x1b[${lastHeight}A`);
         output.write("\x1b[0J");
@@ -231,6 +245,38 @@ export async function pick<T>(
     };
 
     const onKey = (key: TerminalKey) => {
+      // Souris / tactile : un tap (press + release) sélectionne l'élément.
+      const mouse = parseMouseEvent(key.sequence ?? "");
+      if (mouse) {
+        if (mouse.type === "wheel") {
+          index = Math.max(0, Math.min(filtered().length - 1, index + (mouse.button === 0 ? -1 : 1)));
+          render();
+          return;
+        }
+        if (mouse.button !== 0) return; // uniquement le bouton principal
+
+        // La boîte commence à la ligne `baseRow` : ligne 1 = bordure haute.
+        const boxLine = mouse.row - baseRow;
+        const item = lineToItem.get(boxLine - 1);
+
+        if (mouse.type === "press") {
+          pressedItem = item ?? null;
+          if (item !== undefined && item >= 0) {
+            index = item;
+            render();
+          }
+          return;
+        }
+        // relâchement : on confirme si l'option est toujours la même.
+        if (pressedItem !== null && pressedItem === item && item >= 0) {
+          const list = filtered();
+          const chosen = list[item];
+          finish(chosen ? chosen.value : null);
+        }
+        pressedItem = null;
+        return;
+      }
+
       if (key.ctrl && key.name === "c") {
         finish(null);
         return;
@@ -256,7 +302,7 @@ export async function pick<T>(
         return;
       }
       if (key.name === "backspace") {
-        if (useFilter && query.length) {
+        if (query.length) {
           query = query.slice(0, -1);
           index = 0;
           offset = 0;
@@ -264,7 +310,7 @@ export async function pick<T>(
         }
         return;
       }
-      if (useFilter && key.sequence && key.sequence >= " ") {
+      if (key.sequence && key.sequence >= " " && !key.ctrl && !key.meta) {
         query += key.sequence;
         index = 0;
         offset = 0;
@@ -273,7 +319,20 @@ export async function pick<T>(
     };
 
     const pop = input.push(onKey);
-    render();
+
+    // Traçabilité souris (tap sur tablette / PC tactile).
+    input.enableMouse();
+
+    // Position du curseur AVANT le premier rendu : elle donne la ligne écran
+    // du haut de la boîte (indispensable pour convertir un clic en option).
+    void input
+      .queryCursorPosition()
+      .then((pos) => {
+        baseRow = pos.row;
+      })
+      .finally(() => {
+        render();
+      });
   });
 }
 

@@ -46,6 +46,22 @@ handlers, the top one receiving the keys. The REPL line editor and the pickers
 (`/model`, `/provider`, `auth login`) share it — no conflict on stdin, and
 pickers can be opened from inside a running REPL.
 
+The key decoding is done **on the raw bytes** (`decodeKey`), not with
+`readline.emitKeypressEvents`: Node's parser does not know the SGR mouse
+sequences (`\x1b[<button;col;rowM`) and split them into individual characters.
+Our decoder keeps them intact → **tap / click selection works** (tablet,
+touchscreen PC).
+
+### Touch & mouse support
+- `input.enableMouse()` turns on SGR mouse reporting (`?1000h` + `?1006h`).
+- A **tap** (press + release on the same line) selects the option under the
+  finger; the wheel scrolls the list.
+- The pickers query the cursor position (DPR `\x1b[6n`) before drawing, so a
+  screen row maps exactly to an option.
+- The REPL line editor supports tap-to-position the caret (left/right arrows,
+  Home/End, Delete also work).
+- Terminals without mouse reporting are unaffected (the events never arrive).
+
 ### Interactive mode (REPL)
 
 `soryos-code interactive` (aliases `i`, `chat`) opens a terminal session.

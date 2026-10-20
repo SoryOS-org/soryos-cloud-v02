@@ -19,5 +19,11 @@
     "@soryos/session": "*",
     "@soryos/tool": "*",
     "@soryos/workspace": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  },
+  "scripts": {
+    "test:engine": "vitest run"
   }
 }

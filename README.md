@@ -412,7 +412,8 @@ Analyse de la demande…
 - Prompt `┃ soryos ›` (bordure gauche, comme opencode), **historique** (flèches haut/bas)
 - `Ctrl+C` efface la ligne courante, sort sur une ligne vide (code `130`) · `Ctrl+D` sort (`0`)
 - Slash commands : `/help` `/exit` `/new` `/model` `/provider` `/agent` `/auth` `/sessions` `/clear`
-- `/model` et `/provider` ouvrent un **picker** (filtre au clavier, ↑/↓, Entrée)
+- `/model` et `/provider` ouvrent un **picker** avec **champ de recherche** (tapez pour filtrer), ↑/↓, Entrée
+- **Tactile / souris** : un tap (ou un clic) sur une option la sélectionne, la molette fait défiler ; le tap positionne aussi le curseur dans la ligne de saisie
 - Chaque tour est persisté dans `.soryos/cli-sessions/<id>.json`
 - Refusé honnêtement hors TTY (pas de repli silencieux)
 

@@ -17,7 +17,7 @@ import { PROVIDER_REGISTRY } from "@soryos/credentials";
 import { bold, cyan, dim, green, red, warn, danger, println, requireInteractive, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT } from "./ui";
 import { executeRun } from "./engine";
 import { pick, ok, info } from "./terminal";
-import { TerminalInput, type TerminalKey } from "./input";
+import { TerminalInput, parseMouseEvent, type TerminalKey } from "./input";
 import { aiProviderIds, detectProviderAndKey } from "./auth";
 import { getActiveProvider, setActiveProvider } from "./provider-state";
 import { cliSessionStore } from "../cli-session-store";
@@ -261,20 +261,29 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
 
   const input = new TerminalInput();
   input.start();
+  // Traçabilité souris : tap pour positionner le curseur (tablette / tactile)
+  input.enableMouse();
 
   // Historique (100 entrées max, comme opencode).
   const history: string[] = [];
   let historyIndex = -1;
 
   let buffer = "";
+  /** Position du curseur dans le buffer (édition tactile). */
+  let cursor = 0;
   const output = process.stderr;
 
   /** Cadre de la zone de saisie (bordure gauche, comme opencode). */
+  const PROMPT_TEXT = "┃ soryos › ";
+  const PROMPT_WIDTH = PROMPT_TEXT.length;
   const promptLine = () => `${bold(cyan("┃ "))}${bold(cyan("soryos › "))}`;
 
   const draw = () => {
     output.write("\r\x1b[K");
     output.write(`${promptLine()}${buffer}`);
+    // Replace la ligne par le buffer + curseur visible.
+    output.write(`\x1b[${buffer.length - cursor}D`);
+    output.write("\x1b[?25h");
   };
 
   const clearLine = () => {
@@ -284,6 +293,7 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
   const submit = (text: string) => {
     const value = text.trim();
     buffer = "";
+    cursor = 0;
     historyIndex = -1;
     clearLine();
     if (!value) {
@@ -376,6 +386,20 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
   };
 
   const onKey = (key: TerminalKey) => {
+    // Souris / tactile : un tap positionne le curseur dans la ligne de saisie.
+    const mouse = parseMouseEvent(key.sequence ?? "");
+    if (mouse) {
+      if (mouse.type !== "press" || mouse.button !== 0) return;
+      // La ligne de saisie est la dernière ligne écrite : on place le curseur
+      // à la colonne cliquée (borné à la longueur du buffer).
+      const col = Math.max(0, mouse.col - PROMPT_WIDTH - 1);
+      if (col <= buffer.length) {
+        cursor = col;
+        draw();
+      }
+      return;
+    }
+
     if (key.ctrl && key.name === "c") {
       if (buffer.length === 0) {
         println(warn("\nInterrupted."));
@@ -401,16 +425,49 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
       return;
     }
     if (key.name === "backspace") {
-      if (buffer.length) {
-        buffer = buffer.slice(0, -1);
+      if (cursor > 0) {
+        buffer = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
+        cursor--;
         draw();
       }
+      return;
+    }
+    if (key.name === "delete") {
+      if (cursor < buffer.length) {
+        buffer = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
+        draw();
+      }
+      return;
+    }
+    if (key.name === "left") {
+      if (cursor > 0) {
+        cursor--;
+        draw();
+      }
+      return;
+    }
+    if (key.name === "right") {
+      if (cursor < buffer.length) {
+        cursor++;
+        draw();
+      }
+      return;
+    }
+    if (key.name === "home") {
+      cursor = 0;
+      draw();
+      return;
+    }
+    if (key.name === "end") {
+      cursor = buffer.length;
+      draw();
       return;
     }
     if (key.name === "up") {
       if (!history.length) return;
       historyIndex = historyIndex < 0 ? history.length - 1 : Math.max(0, historyIndex - 1);
       buffer = history[historyIndex] ?? "";
+      cursor = buffer.length;
       draw();
       return;
     }
@@ -423,17 +480,20 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
       } else {
         buffer = history[historyIndex];
       }
+      cursor = buffer.length;
       draw();
       return;
     }
     if (key.name === "escape") {
       buffer = "";
+      cursor = 0;
       clearLine();
       draw();
       return;
     }
     if (key.sequence && key.sequence >= " " && !key.ctrl && !key.meta) {
-      buffer += key.sequence;
+      buffer = buffer.slice(0, cursor) + key.sequence + buffer.slice(cursor);
+      cursor += key.sequence.length;
       draw();
     }
   };
