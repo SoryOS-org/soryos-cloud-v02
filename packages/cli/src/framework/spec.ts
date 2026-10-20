@@ -302,7 +302,13 @@ export const ROOT_SPEC: CommandSpec = {
     },
     {
       name: "auth",
-      description: "Détection des clés d'API par provider (env vars)",
+      description: "Gère les identifiants des providers (list/login/logout/switch)",
+      subcommands: [
+        { name: "list", description: "Affiche l'état de chaque provider" },
+        { name: "login", description: "Connecte un provider (saisie masquée)", args: [{ name: "provider", description: "Provider id (ex: google)" }] },
+        { name: "logout", description: "Déconnecte un provider", args: [{ name: "provider", description: "Provider id" }] },
+        { name: "switch", description: "Définit le provider actif", args: [{ name: "provider", description: "Provider id" }] },
+      ],
     },
     {
       name: "debug",

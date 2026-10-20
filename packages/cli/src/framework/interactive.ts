@@ -1,16 +1,25 @@
 /**
  * Interactive — REPL terminal du CLI SoryOS-Code.
  *
- * Inspire du REPL d'opencode (prompt persistant, historique, slash commands)
- * mais reste un adaptateur texte : le moteur est @soryos/agent (runPipeline),
- * le rendu est framework/render.ts. Zéro dépendance, zéro TUI framework.
+ * Inspiré du REPL d'opencode (zone de saisie encadrée, historique, slash
+ * commands, pickers de modèle/provider) mais reste un adaptateur texte :
+ * le moteur est @soryos/agent (runPipeline), le rendu est
+ * framework/render.ts. Zéro dépendance, zéro TUI framework.
+ *
+ * UN SEUL gestionnaire de clavier (`framework/input.ts`) est partagé entre la
+ * ligne de saisie et les pickers : pas de conflit sur stdin.
  */
 
-import * as readline from "node:readline";
 import { SessionData } from "@soryos/schema";
 import { sessionStore } from "@soryos/session";
+import { aiProviderRegistry } from "@soryos/provider";
+import { PROVIDER_REGISTRY } from "@soryos/credentials";
 import { bold, cyan, dim, green, red, warn, danger, println, requireInteractive, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT } from "./ui";
 import { executeRun } from "./engine";
+import { pick, ok, info } from "./terminal";
+import { TerminalInput, type TerminalKey } from "./input";
+import { aiProviderIds, detectProviderAndKey } from "./auth";
+import { getActiveProvider, setActiveProvider } from "./provider-state";
 import { cliSessionStore } from "../cli-session-store";
 
 export interface InteractiveOptions {
@@ -31,27 +40,60 @@ interface SlashOutcome {
   agentId?: string;
   /** Nouveau modèle (commande /model). */
   model?: string;
+  /** Nouveau provider actif (commande /provider). */
+  providerId?: string;
 }
 
 const SLASH_HELP = [
   "/help, /h        Show this help",
   "/exit, /quit     Exit the session",
   "/new [title]     Start a new session",
-  "/model <id>      Change model (e.g. /model gemini-2.5-flash)",
+  "/model [id]      Change the model (picker when no id)",
+  "/provider [id]   Change the AI provider (picker when no id)",
   "/agent <role>    Change agent (build|plan|explore|code-reviewer)",
+  "/auth            Show the connected provider",
   "/sessions        List recent sessions",
   "/clear           Clear the screen",
-  "/history         Show the prompt history",
   "Ctrl+C / Ctrl+D  Exit",
 ];
 
+/** Modèles disponibles (registre réel des providers). */
+function availableModels(): Array<{
+  id: string;
+  name: string;
+  providerId: string;
+  providerName: string;
+  description: string;
+}> {
+  const out: Array<{ id: string; name: string; providerId: string; providerName: string; description: string }> = [];
+  for (const provider of aiProviderRegistry.getAllProviders()) {
+    let models: Array<{ id: string; name: string; description?: string }> = [];
+    try {
+      models = provider.listModels() as Array<{ id: string; name: string; description?: string }>;
+    } catch {
+      models = [];
+    }
+    for (const model of models) {
+      out.push({
+        id: model.id,
+        name: model.name,
+        providerId: String(provider.id),
+        providerName: provider.name,
+        description: model.description ?? "",
+      });
+    }
+  }
+  return out;
+}
+
 /** Exécute une slash command. */
-function handleSlash(
+async function handleSlash(
   cmd: string,
   args: string[],
   session: SessionData,
   agentId: string,
-): SlashOutcome {
+  input: TerminalInput,
+): Promise<SlashOutcome> {
   switch (cmd) {
     case "help":
     case "h":
@@ -80,16 +122,81 @@ function handleSlash(
       };
       sessionStore.getOrCreate(fresh.id);
       sessionStore.save(fresh);
-      println(green(`✔ New session: ${fresh.id}`));
+      ok(`New session: ${fresh.id}`);
       return { action: "continue", session: fresh };
     }
 
     case "model": {
-      if (!args.length) {
-        println(dim(`Current model: ${session.model}`));
+      if (args.length) {
+        return { action: "continue", model: args[0] };
+      }
+
+      const models = availableModels();
+      if (!models.length) {
+        info("No model in the registry.");
         return { action: "continue" };
       }
-      return { action: "continue", model: args[0] };
+
+      const current = session.model;
+      const chosen = await pick<string>(
+        {
+          title: "Select a model",
+          options: models.map((m) => ({
+            value: m.id,
+            title: m.name,
+            description: `${m.providerName} · ${m.id}${m.id === current ? " (current)" : ""}`,
+            category: m.providerName,
+          })),
+          hint: "↑/↓ navigate · type to filter · enter select · esc cancel",
+        },
+        input,
+      );
+
+      if (!chosen) {
+        info("Cancelled.");
+        return { action: "continue" };
+      }
+      return { action: "continue", model: chosen };
+    }
+
+    case "provider": {
+      if (args.length) {
+        return { action: "continue", providerId: args[0] };
+      }
+
+      const active = await getActiveProvider();
+      const providers = aiProviderIds();
+      const chosen = await pick<string>(
+        {
+          title: "Select the AI provider",
+          options: providers.map((id) => ({
+            value: id,
+            title: PROVIDER_REGISTRY[id]?.name ?? id,
+            description: PROVIDER_REGISTRY[id]?.description,
+            category: id === active ? "Active" : "Available",
+          })),
+          hint: "↑/↓ navigate · enter select · esc cancel",
+        },
+        input,
+      );
+
+      if (!chosen) {
+        info("Cancelled.");
+        return { action: "continue" };
+      }
+      return { action: "continue", providerId: chosen };
+    }
+
+    case "auth": {
+      const creds = await detectProviderAndKey();
+      if (creds) {
+        ok(`Provider ${creds.provider} (${creds.source})`);
+      } else {
+        info("No provider connected. Run: soryos-code auth login");
+      }
+      const active = await getActiveProvider();
+      if (active) println(dim(`  active: ${active}`));
+      return { action: "continue" };
     }
 
     case "agent": {
@@ -134,17 +241,9 @@ function handleSlash(
   }
 }
 
-/** Parse une slash command. */
-function parseSlash(input: string): [string, string[]] | null {
-  const trimmed = input.trim();
-  if (!trimmed.startsWith("/")) return null;
-  const parts = trimmed.slice(1).trim().split(/\s+/);
-  return [parts[0].toLowerCase(), parts.slice(1)];
-}
-
 /**
- * Boucle REPL. Le prompt est `soryos ›`, l'historique utilise les flèches
- * (readline natif), Ctrl+C sur ligne vide quitte (130), Ctrl+D quitte (0).
+ * Boucle REPL : ligne de saisie encadrée (bordure gauche `┃`), historique
+ * (flèches), slash commands, pickers.
  */
 export async function startInteractive(opts: InteractiveOptions): Promise<number> {
   const guard = requireInteractive("Interactive mode");
@@ -160,44 +259,63 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
   let exitCode = EXIT_OK;
   let running = false;
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stderr,
-    prompt: bold(cyan("soryos › ")),
-    terminal: true,
-    historySize: 100,
-    removeHistoryDuplicates: true,
-  });
+  const input = new TerminalInput();
+  input.start();
 
-  // Les permissions / questions sont traitées par framework/interactions.ts
-  // (via le flux canonique) — le REPL n'a pas sa propre subscription.
+  // Historique (100 entrées max, comme opencode).
+  const history: string[] = [];
+  let historyIndex = -1;
 
-  const promptFor = () => rl.prompt();
+  let buffer = "";
+  const output = process.stderr;
 
-  rl.on("SIGINT", () => {
-    if (rl.line.length === 0) {
-      println(warn("\nInterrupted."));
-      rl.close();
+  /** Cadre de la zone de saisie (bordure gauche, comme opencode). */
+  const promptLine = () => `${bold(cyan("┃ "))}${bold(cyan("soryos › "))}`;
+
+  const draw = () => {
+    output.write("\r\x1b[K");
+    output.write(`${promptLine()}${buffer}`);
+  };
+
+  const clearLine = () => {
+    output.write("\r\x1b[K");
+  };
+
+  const submit = (text: string) => {
+    const value = text.trim();
+    buffer = "";
+    historyIndex = -1;
+    clearLine();
+    if (!value) {
+      draw();
       return;
     }
-    // Ligne en cours : on l'efface et on redemande.
-    rl.write("\x15"); // Ctrl+U : efface la ligne courante
-    process.stderr.write("\r\x1b[K");
-    promptFor();
-  });
-
-  rl.on("line", (input) => {
-    if (running) return; // sérialise les exécutions
-    const text = input.trim();
-    if (!text) {
-      promptFor();
-      return;
+    if (history[history.length - 1] !== value) {
+      history.push(value);
+      if (history.length > 100) history.shift();
     }
+    void runLine(value);
+  };
 
-    const slash = parseSlash(text);
+  const runLine = async (text: string) => {
+    const slash = text.startsWith("/")
+      ? (() => {
+          const parts = text.slice(1).trim().split(/\s+/);
+          return [parts[0]?.toLowerCase() ?? "", parts.slice(1)] as [string, string[]];
+        })()
+      : null;
+
     if (slash) {
       const [cmd, args] = slash;
-      const outcome = handleSlash(cmd, args, session, agentId);
+      let outcome: SlashOutcome;
+      try {
+        outcome = await handleSlash(cmd, args, session, agentId, input);
+      } catch (err: any) {
+        println(danger(`✖ ${err?.message ?? err}`));
+        draw();
+        return;
+      }
+
       if (outcome.session) session = outcome.session;
       if (outcome.agentId) agentId = outcome.agentId;
       if (outcome.model) {
@@ -205,64 +323,141 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
         // MISE À JOUR CIBLÉE : ne jamais réécrire l'objet local, il ne
         // contient pas l'historique (l'agent travaille sur l'objet du store).
         sessionStore.update(session.id, { model });
-        println(green(`✔ Model set to ${model}`));
+        ok(`Model set to ${model}`);
+      }
+      if (outcome.providerId) {
+        await setActiveProvider(outcome.providerId);
+        ok(`Provider set to ${PROVIDER_REGISTRY[outcome.providerId]?.name ?? outcome.providerId}`);
+        println(dim("  (the key is resolved at run time — reconnect with /auth or `auth login`)"));
       }
       if (outcome.action === "exit") {
         exitCode = outcome.exitCode ?? EXIT_OK;
-        rl.close();
+        input.stop();
         return;
       }
-      promptFor();
+      draw();
       return;
     }
 
     running = true;
-    (async () => {
-      // Le renderer affiche déjà l'événement canonique `error`.
-      let failureReported = false;
-      try {
-        const outcome = await executeRun({
-          session,
-          prompt: text,
-          agentId,
-          modelId: model,
-          apiKey: opts.apiKey,
-          formatJson: opts.formatJson,
-          auto: opts.auto,
-          onFailure: () => {
-            failureReported = true;
-          },
-        });
+    // Le renderer affiche déjà l'événement canonique `error`.
+    let failureReported = false;
+    try {
+      const outcome = await executeRun({
+        session,
+        prompt: text,
+        agentId,
+        modelId: model,
+        apiKey: opts.apiKey,
+        formatJson: opts.formatJson,
+        auto: opts.auto,
+        onFailure: () => {
+          failureReported = true;
+        },
+      });
 
-        if (outcome.status === "failed") {
-          exitCode = EXIT_ERROR;
-          if (!failureReported && !opts.formatJson) {
-            println(danger(`✖ ${outcome.error ?? "Unknown error"}`));
-          }
-        }
-
-        const latest = sessionStore.get(session.id);
-        if (latest) await cliSessionStore.save(latest);
-      } catch (err: any) {
+      if (outcome.status === "failed") {
         exitCode = EXIT_ERROR;
-        if (!opts.formatJson) println(danger(`✖ ${err?.message ?? err}`));
-      } finally {
-        running = false;
-        if (!opts.formatJson) println("");
-        promptFor();
+        if (!failureReported && !opts.formatJson) {
+          println(danger(`✖ ${outcome.error ?? "Unknown error"}`));
+        }
       }
-    })();
-  });
+
+      const latest = sessionStore.get(session.id);
+      if (latest) await cliSessionStore.save(latest);
+    } catch (err: any) {
+      exitCode = EXIT_ERROR;
+      if (!opts.formatJson) println(danger(`✖ ${err?.message ?? err}`));
+    } finally {
+      running = false;
+      if (!opts.formatJson) println("");
+      draw();
+    }
+  };
+
+  const onKey = (key: TerminalKey) => {
+    if (key.ctrl && key.name === "c") {
+      if (buffer.length === 0) {
+        println(warn("\nInterrupted."));
+        exitCode = EXIT_INTERRUPT;
+        input.stop();
+        return;
+      }
+      buffer = "";
+      clearLine();
+      draw();
+      return;
+    }
+    if (key.ctrl && key.name === "d") {
+      if (buffer.length === 0) {
+        exitCode = EXIT_OK;
+        input.stop();
+        return;
+      }
+      return;
+    }
+    if (key.name === "return" || key.name === "enter") {
+      submit(buffer);
+      return;
+    }
+    if (key.name === "backspace") {
+      if (buffer.length) {
+        buffer = buffer.slice(0, -1);
+        draw();
+      }
+      return;
+    }
+    if (key.name === "up") {
+      if (!history.length) return;
+      historyIndex = historyIndex < 0 ? history.length - 1 : Math.max(0, historyIndex - 1);
+      buffer = history[historyIndex] ?? "";
+      draw();
+      return;
+    }
+    if (key.name === "down") {
+      if (historyIndex < 0) return;
+      historyIndex = historyIndex + 1;
+      if (historyIndex >= history.length) {
+        historyIndex = -1;
+        buffer = "";
+      } else {
+        buffer = history[historyIndex];
+      }
+      draw();
+      return;
+    }
+    if (key.name === "escape") {
+      buffer = "";
+      clearLine();
+      draw();
+      return;
+    }
+    if (key.sequence && key.sequence >= " " && !key.ctrl && !key.meta) {
+      buffer += key.sequence;
+      draw();
+    }
+  };
+
+  const pop = input.push(onKey);
 
   println(bold(cyan("SoryOS-Code interactive")));
   println(dim(`Session: ${session.id}  Agent: ${agentId}  Model: ${model}`));
   println(dim("Type /help for slash commands, /exit to quit."));
   println("");
-  promptFor();
+  draw();
 
-  await new Promise<void>((resolve) => rl.on("close", () => resolve()));
+  // Attend la fin de la boucle (input.stop() ou sortie du process).
+  await new Promise<void>((resolve) => {
+    const check = setInterval(() => {
+      if (input.depth === 0) {
+        clearInterval(check);
+        resolve();
+      }
+    }, 50);
+  });
 
-  rl.close();
+  pop();
+  input.stop();
 
   return exitCode;
 }

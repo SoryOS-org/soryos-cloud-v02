@@ -42,7 +42,7 @@ export const runHandler: CommandHandler = async (ctx) => {
 
   if (!prompt) return fail("Prompt is required (positional args or piped stdin).");
 
-  const creds = detectProviderAndKey();
+  const creds = await detectProviderAndKey();
   if (!creds) return fail("API key required: set GEMINI_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY");
 
   let session: SessionData;

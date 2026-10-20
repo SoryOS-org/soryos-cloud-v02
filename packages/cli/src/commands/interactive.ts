@@ -36,7 +36,7 @@ export const interactiveHandler: CommandHandler = async (ctx) => {
   const ttyGuard = requireInteractive("Interactive mode");
   if (ttyGuard !== null) return ttyGuard;
 
-  const creds = detectProviderAndKey();
+  const creds = await detectProviderAndKey();
   if (!creds) {
     return fail("API key required: set GEMINI_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY");
   }

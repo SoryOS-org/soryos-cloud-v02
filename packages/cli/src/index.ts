@@ -12,6 +12,7 @@
 
 import { parseInvocation, printRootHelp, printCommandHelp, ROOT_SPEC } from "./framework/spec";
 import { fail, EXIT_OK, EXIT_ERROR, println, writeOut } from "./framework/ui";
+import { hydrateCredentials } from "./framework/auth";
 import type { CommandContext, CommandHandler } from "./framework/spec";
 
 interface ResolvedHandler {
@@ -49,7 +50,7 @@ async function resolveHandler(path: string[]): Promise<ResolvedHandler | null> {
       return { handler: async () => (await import("./commands")).modelsHandler() };
 
     case "auth":
-      return { handler: async () => (await import("./commands")).authHandler() };
+      return { handler: (await import("./commands")).authHandler };
 
     case "debug":
       if (!sub) return { handler: async () => { printCommandHelp(["debug"]); return EXIT_ERROR; } };
@@ -73,6 +74,10 @@ async function resolveHandler(path: string[]): Promise<ResolvedHandler | null> {
  * @returns le code de sortie (0 ok, 1 erreur, 130 interrupt)
  */
 export async function runCLI(argv: string[] = process.argv.slice(2)): Promise<number> {
+  // Les identifiants sauvegardés sur disque doivent être visibles AVANT toute
+  // résolution de provider (sinon `auth login` ne sert à rien).
+  await hydrateCredentials();
+
   if (argv.length === 0) {
     // Sans argument : on ouvre la session interactive (comme opencode).
     if (process.stdin.isTTY && process.stderr.isTTY) {

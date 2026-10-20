@@ -1,5 +1,10 @@
 import { computeFingerprint, maskSecret, setCredentialResolver } from "@soryos/provider";
 import type { ResolvedCredential, CredentialSource } from "@soryos/provider";
+import {
+  readPersistedCredentials,
+  writePersistedCredentials,
+  removePersistedCredentials,
+} from "./store";
 
 export type AuthMethod = "github_oauth" | "api_key" | "api_token" | "service_account";
 
@@ -487,6 +492,47 @@ export class CredentialManager {
       httpStatus: extra?.httpStatus,
       latencyMs: extra?.latencyMs,
     });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Persistance disque                                                  */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Charge les identifiants depuis le disque vers le store mémoire.
+   * DOIT être appelé au démarrage d'un process (CLI) : sans ça, les clés
+   * sauvegardées ne sont pas visibles.
+   * @returns les ids de providers chargés
+   */
+  async hydrate(cwd: string = process.cwd()): Promise<string[]> {
+    const persisted = await readPersistedCredentials(cwd);
+    for (const [providerId, fields] of Object.entries(persisted)) {
+      credentialsStore.set(providerId, fields);
+    }
+    return Object.keys(persisted);
+  }
+
+  /** Sauvegarde (mémoire + disque) les champs d'un provider. */
+  async persist(
+    providerId: string,
+    fields: Record<string, string>,
+    scope: "project" | "global" = "project",
+    cwd: string = process.cwd(),
+  ): Promise<{ success: boolean; status: ProviderStatus; file: string }> {
+    const result = this.saveCredentials(providerId, fields);
+    const file = await writePersistedCredentials(providerId, fields, scope, cwd);
+    return { ...result, file };
+  }
+
+  /** Supprime les identifiants d'un provider (mémoire + disque). */
+  async remove(
+    providerId: string,
+    scope: "project" | "global" = "project",
+    cwd: string = process.cwd(),
+  ): Promise<{ success: boolean; status: ProviderStatus; removed: boolean }> {
+    const result = this.deleteCredentials(providerId);
+    const removed = await removePersistedCredentials(providerId, scope, cwd);
+    return { ...result, removed };
   }
 }
 

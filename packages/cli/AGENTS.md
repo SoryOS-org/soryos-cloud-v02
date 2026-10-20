@@ -21,19 +21,74 @@ CLI (packages/cli/src/index.ts)
   ├── framework/spec.ts       # declarative command tree + lazy handler registry
   ├── framework/ui.ts         # stdout/stderr discipline, NDJSON, exit codes
   ├── framework/flags.ts      # shared flag groups (session, model, format, auto)
-  ├── framework/render.ts     # UNIQUE bus→terminal renderer (run + interactive)
-  ├── framework/engine.ts     # UNIQUE execution wrapper around @soryos/agent pipeline
-  ├── framework/interactive.ts# REPL terminal (prompt, history, slash commands)
+  ├── framework/render.ts     # UNIQUE canonical→terminal renderer
+  ├── framework/engine.ts     # UNIQUE execution wrapper around @soryos/agent
+  ├── framework/interactive.ts# REPL terminal (bordered prompt, history, slash cmds)
+  ├── framework/input.ts      # UNIQUE keyboard owner (stdin raw mode) — REPL + pickers
+  ├── framework/terminal.ts   # bordered boxes, secret input, interactive picker
+  ├── framework/auth.ts       # API key resolution (active provider → disk → env)
+  ├── framework/provider-state.ts # active provider (persisted on disk)
+  ├── framework/session.ts    # shared session resolution (@soryos/session)
   ├── cli-session-store.ts    # real JSON persistence on disk
   └── commands/
       ├── run.ts              # non-interactive engine (the core)
       ├── interactive.ts      # REPL entry point
+      ├── auth.ts             # list / login / logout / switch
       ├── session/{list,delete,export,import}.ts
       ├── models.ts           # @soryos/provider registry
-      ├── auth.ts             # env key detection
       ├── debug/{paths,config}.ts
       └── plugin.ts           # skill listing
 ```
+
+### Terminal input (one owner)
+`framework/input.ts` is the **single owner of stdin** in raw mode: a stack of key
+handlers, the top one receiving the keys. The REPL line editor and the pickers
+(`/model`, `/provider`, `auth login`) share it — no conflict on stdin, and
+pickers can be opened from inside a running REPL.
+
+### Interactive mode (REPL)
+
+`soryos-code interactive` (aliases `i`, `chat`) opens a terminal session.
+Running `soryos-code` with **no arguments** in a TTY opens it too.
+
+| Feature | Behaviour |
+|---------|-----------|
+| Prompt | `┃ soryos ›` (left border, like opencode) |
+| History | up/down arrows (100 entries) |
+| Ctrl+C | clears the current line; on an empty line it exits (code 130) |
+| Ctrl+D | exits (code 0) |
+| Non-TTY | refused honestly: "Interactive mode requires an interactive terminal (TTY)" |
+| Persistence | every turn is written to `.soryos/cli-sessions/<id>.json` |
+
+### Slash commands
+| Command | Effect |
+|---------|--------|
+| `/help`, `/h` | list the slash commands |
+| `/exit`, `/quit`, `/q` | leave the session |
+| `/new [title]` | start a new session (keeps the same model/agent) |
+| `/model [id]` | **picker** over the real model registry (or apply the id directly) |
+| `/provider [id]` | **picker** over the AI providers, sets the active one |
+| `/agent <role>` | change the agent (`build`/`plan`/`explore`/`code-reviewer`) |
+| `/auth` | show the connected provider and the active one |
+| `/sessions` | list the 10 most recent sessions |
+| `/clear` | clear the screen |
+
+### Provider credentials (`soryos-code auth`)
+
+Adapted from opencode's `auth` family, backed by `@soryos/credentials`:
+
+```bash
+soryos-code auth list                 # état de chaque provider (source + connexion)
+soryos-code auth login [provider]     # picker + saisie masquée → .soryos/credentials.json
+soryos-code auth logout [provider]    # supprime la clé stockée
+soryos-code auth switch <provider>    # provider actif (utilisé par défaut)
+```
+
+- The key is written to `.soryos/credentials.json` with mode **0600** (secrets).
+- `framework/auth.ts` resolves the key: **active provider → disk → env vars**.
+- The stored key is REALLY used: `@soryos/credentials` hydrates the store at
+  startup, and the providers resolve their key through it.
+- `opencode-zen` has a public default (by design) — it shows as connected.
 
 ### Shared engine (single source of truth)
 - `@soryos/agent` exposes `runPipeline(options, emit)` — the **only** place that
@@ -50,31 +105,6 @@ CLI (packages/cli/src/index.ts)
 - The web app calls the same `runPipeline` (`apps/web/app/api/sessions/[id]/messages/route.ts`
   and `.../run/route.ts`) and the same `resolveSessionTarget`
   (`.../run/route.ts` with `{ target: "continue" | "fork" }`).
-
-## Interactive mode (REPL)
-
-` soryos-code interactive` (aliases `i`, `chat`) opens a terminal session.
-Running `soryos-code` with **no arguments** in a TTY opens it too.
-
-| Feature | Behaviour |
-|---------|-----------|
-| Prompt | `soryos ›` (stderr) |
-| History | up/down arrows (native `readline` history, 100 entries) |
-| Ctrl+C | clears the current line; on an empty line it exits (code 130) |
-| Ctrl+D | exits (code 0) |
-| Non-TTY | refused honestly: "Interactive mode requires an interactive terminal (TTY)" |
-| Persistence | every turn is written to `.soryos/cli-sessions/<id>.json` |
-
-### Slash commands
-| Command | Effect |
-|---------|--------|
-| `/help`, `/h` | list the slash commands |
-| `/exit`, `/quit`, `/q` | leave the session |
-| `/new [title]` | start a new session (keeps the same model/agent) |
-| `/model <id>` | change the model for the next turns |
-| `/agent <role>` | change the agent (`build`/`plan`/`explore`/`code-reviewer`) |
-| `/sessions` | list the 10 most recent sessions |
-| `/clear` | clear the screen |
 
 ## Output Conventions (opencode-style, adapted)
 - **stdout = DATA only** (NDJSON `--format json`, lists, exports)

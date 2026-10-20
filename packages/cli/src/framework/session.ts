@@ -9,6 +9,7 @@
 
 import { SessionData } from "@soryos/schema";
 import { resolveSessionTarget, type SessionTarget } from "@soryos/session";
+import { aiProviderRegistry } from "@soryos/provider";
 import { cliSessionSource } from "../cli-session-store";
 import { str, bool } from "./flags";
 import { detectProviderAndKey } from "./auth";
@@ -34,10 +35,22 @@ export interface CliSessionResolution {
  * @throws Error honnête si les options sont contradictoires (`--fork` seul).
  */
 export async function resolveCliSession(flags: CliSessionFlags): Promise<CliSessionResolution> {
+  const creds = await detectProviderAndKey();
+
+  // Modèle par défaut = celui du provider détecté (pas un modèle codé en dur).
+  let defaultModel = "gemini-2.5-flash";
+  if (creds?.providerId) {
+    try {
+      defaultModel = aiProviderRegistry.getRequiredProvider(creds.providerId).getDefaultModel();
+    } catch {
+      /* provider inconnu du registre : on garde le défaut */
+    }
+  }
+
   const template: Partial<SessionData> = {
     title: str(flags, "title") ?? "CLI Session",
-    model: str(flags, "model") ?? "gemini-2.5-flash",
-    provider: detectProviderAndKey()?.provider ?? "Google Gemini",
+    model: str(flags, "model") ?? defaultModel,
+    provider: creds?.provider ?? "Google Gemini",
     environment: "local",
     providerId: "local",
     cwd: process.cwd(),

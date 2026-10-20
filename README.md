@@ -387,27 +387,50 @@ npx tsx packages/cli/src/index.ts interactive
 
 ```
 SoryOS-Code interactive
-Session: cli-1792455798006-einjxi  Agent: build  Model: gemini-2.5-flash
+Session: cli-1792499056969-3ouvur  Agent: build  Model: gemini-3.8-flash
 Type /help for slash commands, /exit to quit.
 
-soryos › refactor the auth module
+┃ soryos › analyse le repo et propose un plan
 ● Agent started
-...
-✔ Task finished (3 steps, 5 tools)
+Analyse de la demande…
+⚙ glob_files
+✔ glob_files
+✔ Task finished
 
-soryos › /model gemini-2.5-flash
-✔ Model set to gemini-2.5-flash
+┃ soryos › /model
+╭ Select a model ──────────────────────────────────────────────────────╮
+│ Filter: ▌                                                            │
+│   Google Gemini                                                      │
+│ ❯ Gemini 3.8 Flash — Google Gemini · gemini-3.8-flash (current)      │
+│   Gemini 3.0 Pro — Google Gemini · gemini-3.0-pro                    │
+│ ↑/↓ navigate · type to filter · enter select · esc cancel            │
+╰──────────────────────────────────────────────────────────────────────╯
 
-soryos › /exit
+┃ soryos › /exit
 ```
 
-- Prompt `soryos ›`, **history** with the up/down arrows (100 entries)
-- `Ctrl+C` clears the current line, exits on an empty line (code `130`) · `Ctrl+D` exits (`0`)
-- Slash commands: `/help` `/exit` `/new` `/model` `/agent` `/sessions` `/clear`
-- Every turn is persisted to `.soryos/cli-sessions/<id>.json`
-- Refused honestly outside a TTY (no silent fallback)
+- Prompt `┃ soryos ›` (bordure gauche, comme opencode), **historique** (flèches haut/bas)
+- `Ctrl+C` efface la ligne courante, sort sur une ligne vide (code `130`) · `Ctrl+D` sort (`0`)
+- Slash commands : `/help` `/exit` `/new` `/model` `/provider` `/agent` `/auth` `/sessions` `/clear`
+- `/model` et `/provider` ouvrent un **picker** (filtre au clavier, ↑/↓, Entrée)
+- Chaque tour est persisté dans `.soryos/cli-sessions/<id>.json`
+- Refusé honnêtement hors TTY (pas de repli silencieux)
+
+### Provider credentials (`soryos-code auth`)
+
+```bash
+soryos-code auth list                 # état de chaque provider
+soryos-code auth login google          # picker + saisie masquée → stockage disque
+soryos-code auth logout google         # supprime la clé stockée
+soryos-code auth switch openai         # provider actif par défaut
+```
+
+- La clé est écrite dans `.soryos/credentials.json` (permissions **0600**)
+- Résolution : **provider actif → clé stockée → variables d'environnement**
+- La clé stockée est **réellement utilisée** par l'agent (`@soryos/credentials`)
 
 ### Output Conventions (opencode-style)
+
 - **stdout = DATA only** (NDJSON `--format json`, lists, exports)
 - **stderr = chrome** (progress, errors, human rendering)
 - **Exit codes**: `0` ok · `1` error · `130` SIGINT

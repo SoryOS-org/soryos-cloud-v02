@@ -9,6 +9,7 @@ export { sessionExportHandler } from "./session/export";
 export { sessionImportHandler } from "./session/import";
 export { modelsHandler } from "./models";
 export { authHandler } from "./auth";
+export { interactiveHandler } from "./interactive";
 export { debugPathsHandler } from "./debug/paths";
 export { debugConfigHandler } from "./debug/config";
 export { pluginHandler } from "./plugin";
