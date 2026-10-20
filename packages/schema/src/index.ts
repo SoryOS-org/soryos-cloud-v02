@@ -3,6 +3,8 @@
  * Central types and domain contracts for SoryOS-Code.
  */
 
+export * from "./events";
+
 // 1. Workspace Contracts
 export type ProviderId = "local" | "github-codespaces" | "github-repository" | "e2b" | "vercel" | "google-cloud-run";
 

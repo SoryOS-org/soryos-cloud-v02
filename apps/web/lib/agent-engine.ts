@@ -2,7 +2,7 @@
 import { sessionStore } from "@soryos/session";
 import { workspaceManager } from "@soryos/workspace";
 import { agentRuntime, SUBAGENT_DEFINITIONS, getSubagentDefinition } from "@soryos/agent";
-import type { SessionData, ChatMessage, MessageBlock, ToolStep, ProviderId, AgentEventType, AgentEvent, EnvironmentType } from "@soryos/schema";
+import type { SessionData, ChatMessage, MessageBlock, ToolStep, ProviderId, AgentEventType, AgentEvent, SoryOSEvent, EnvironmentType } from "@soryos/schema";
 import { executionManager } from "@soryos/execution";
 
 export const getSessionData = sessionStore.getOrCreate;
@@ -19,7 +19,7 @@ export const updateSessionTitle = (id: string, title: string): boolean => {
 };
 
 export { workspaceManager, agentRuntime, SUBAGENT_DEFINITIONS as AGENT_MATRIX, getSubagentDefinition as getAgentDefinition, executionManager };
-export type { SessionData, ChatMessage, MessageBlock, ToolStep, ProviderId, AgentEventType, AgentEvent, EnvironmentType };
+export type { SessionData, ChatMessage, MessageBlock, ToolStep, ProviderId, AgentEventType, AgentEvent, SoryOSEvent, EnvironmentType };
 
 export function createNewSession(
   title: string = "New Session",

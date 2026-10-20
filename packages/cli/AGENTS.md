@@ -27,9 +27,13 @@ CLI (packages/cli/src/index.ts)
 ### Shared engine (single source of truth)
 - `@soryos/agent` exposes `runPipeline(options, emit)` — the **only** place that
   prepares a session, appends the user message, and calls `agentRuntime.run()`.
+  It emits **canonical events only** (`SoryOSEvent`, translated from the planner
+  stream and the bus by `toSoryOSEvent()` in `@soryos/schema`).
 - `framework/engine.ts#executeRun` is the **only** CLI call site of `runPipeline`.
-- `framework/render.ts#attachRenderer` is the **only** bus→terminal renderer
+- `framework/render.ts#createRenderer` is the **only** canonical→terminal renderer
   (used by both `run` and `interactive` — no duplicated switch statements).
+- `framework/interactions.ts#handleInteraction` answers the permission/question
+  requests (canonical events) — the CLI never hangs waiting for a human.
 - `framework/session.ts#resolveCliSession` is the **only** CLI session resolution
   (it wraps the shared `@soryos/session` `resolveSessionTarget`).
 - The web app calls the same `runPipeline` (`apps/web/app/api/sessions/[id]/messages/route.ts`

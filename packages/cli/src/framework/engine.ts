@@ -1,13 +1,14 @@
 /**
  * Engine — logique d'exécution partagée entre le mode `run` et le REPL `interactive`.
- * Appelle le pipeline @soryos/agent (unique source de ce qui tourne) et un
- * renderer @soryos/bus conçu pour être shared.
+ * Appelle le pipeline @soryos/agent (unique source de ce qui tourne) et rend
+ * les événements CANONIQUES (`SoryOSEvent`) via framework/render.ts.
  */
 
 import { SessionData } from "@soryos/schema";
 import { workspaceManager } from "@soryos/workspace";
 import { runPipeline, type RunPipelineResult } from "@soryos/agent";
-import { attachRenderer, writeTextDelta } from "./render";
+import { createRenderer, writeTextDelta } from "./render";
+import { handleInteraction } from "./interactions";
 
 export interface RunInput {
   session: SessionData;
@@ -16,6 +17,10 @@ export interface RunInput {
   modelId?: string;
   apiKey?: string;
   formatJson: boolean;
+  /** `--auto` : les permissions sont accordées automatiquement. */
+  auto?: boolean;
+  /** Notifié quand le run échoue (permet de fixer le code de sortie). */
+  onFailure?: (message: string) => void;
 }
 
 export interface RunOutput {
@@ -36,18 +41,18 @@ function ensureWorkspace(session: SessionData): void {
 }
 
 /**
- * Lancement unique : attache le renderer au bus, appelle le pipeline, nettoyage.
+ * Lancement unique : rend le flux canonique, appelle le pipeline, nettoyage.
  */
 export async function executeRun(input: RunInput): Promise<RunOutput> {
   const { session, prompt, agentId, modelId, apiKey, formatJson } = input;
 
   ensureWorkspace(session);
 
-  const unsubscribe = attachRenderer({
+  const renderer = createRenderer({
     sessionId: session.id,
     formatJson,
+    onFailure: input.onFailure,
   });
-
   try {
     const result: RunPipelineResult = await runPipeline(
       {
@@ -57,11 +62,22 @@ export async function executeRun(input: RunInput): Promise<RunOutput> {
         modelId: modelId ?? session.model,
         apiKey,
       },
-      (event: { type: string; [key: string]: any }) => {
-        // Le planner émet des événements plats : { type: 'text', delta }
+      (event) => {
+        // 1. Les demandes d'interaction sont TOUJOURS traitées (jamais de hang).
+        handleInteraction(event, {
+          auto: input.auto,
+          notify: (message) => {
+            if (!formatJson) process.stderr.write(`${message}\n`);
+          },
+        });
+
+        // 2. Le texte est en streaming : on l'écrit au fil de l'eau.
         if (event.type === "text" && event.delta && !formatJson) {
-          writeTextDelta(event.delta as string);
+          writeTextDelta(event.delta);
         }
+
+        // 3. Rendu de l'événement canonique.
+        renderer.render(event);
       },
     );
 
@@ -78,6 +94,6 @@ export async function executeRun(input: RunInput): Promise<RunOutput> {
       session: result.session,
     };
   } finally {
-    unsubscribe();
+    /* le renderer est sans état persistant : rien à libérer */
   }
 }

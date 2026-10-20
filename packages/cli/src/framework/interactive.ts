@@ -9,8 +9,6 @@
 import * as readline from "node:readline";
 import { SessionData } from "@soryos/schema";
 import { sessionStore } from "@soryos/session";
-import { globalEventBus } from "@soryos/bus";
-import { resolvePermissionRequest } from "@soryos/permissions";
 import { bold, cyan, dim, green, red, warn, danger, println, requireInteractive, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT } from "./ui";
 import { executeRun } from "./engine";
 import { cliSessionStore } from "../cli-session-store";
@@ -171,15 +169,8 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
     removeHistoryDuplicates: true,
   });
 
-  // Auto-approbation des permissions (--auto)
-  let unsubPerm: (() => void) | null = null;
-  if (opts.auto) {
-    unsubPerm = globalEventBus.on("permission.requested", (e: any) => {
-      if (e.sessionId !== session.id) return;
-      println(dim(`⚡ Auto-allow: ${e.toolName}`));
-      resolvePermissionRequest(e.requestId, "allow-once");
-    });
-  }
+  // Les permissions / questions sont traitées par framework/interactions.ts
+  // (via le flux canonique) — le REPL n'a pas sa propre subscription.
 
   const promptFor = () => rl.prompt();
 
@@ -227,6 +218,8 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
 
     running = true;
     (async () => {
+      // Le renderer affiche déjà l'événement canonique `error`.
+      let failureReported = false;
       try {
         const outcome = await executeRun({
           session,
@@ -235,11 +228,17 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
           modelId: model,
           apiKey: opts.apiKey,
           formatJson: opts.formatJson,
+          auto: opts.auto,
+          onFailure: () => {
+            failureReported = true;
+          },
         });
 
         if (outcome.status === "failed") {
           exitCode = EXIT_ERROR;
-          if (!opts.formatJson) println(danger(`✖ ${outcome.error ?? "Unknown error"}`));
+          if (!failureReported && !opts.formatJson) {
+            println(danger(`✖ ${outcome.error ?? "Unknown error"}`));
+          }
         }
 
         const latest = sessionStore.get(session.id);
@@ -263,7 +262,6 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
 
   await new Promise<void>((resolve) => rl.on("close", () => resolve()));
 
-  if (unsubPerm) unsubPerm();
   rl.close();
 
   return exitCode;

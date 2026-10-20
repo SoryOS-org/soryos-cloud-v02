@@ -7,10 +7,8 @@
  */
 
 import { SessionData } from "@soryos/schema";
-import { globalEventBus } from "@soryos/bus";
 import { sessionStore } from "@soryos/session";
 import { workspaceManager } from "@soryos/workspace";
-import { resolvePermissionRequest } from "@soryos/permissions";
 import { executeRun, type RunOutput } from "../framework/engine";
 import { cliSessionStore } from "../cli-session-store";
 import { resolveCliSession } from "../framework/session";
@@ -72,15 +70,6 @@ export const runHandler: CommandHandler = async (ctx) => {
     emitNdjson({ type: "session_started", sessionId: session.id, agent: agentId, model: session.model });
   }
 
-  let unsubPerm: (() => void) | null = null;
-  if (bool(flags, "auto")) {
-    unsubPerm = globalEventBus.on("permission.requested", (e: any) => {
-      if (e.sessionId !== session.id) return;
-      println(dim(`⚡ Auto-allow: ${e.toolName}`));
-      resolvePermissionRequest(e.requestId, "allow-once");
-    });
-  }
-
   let sigintCount = 0;
   const sigintHandler = () => {
     sigintCount++;
@@ -94,6 +83,9 @@ export const runHandler: CommandHandler = async (ctx) => {
   process.on("SIGINT", sigintHandler);
 
   let resultCode = EXIT_OK;
+  // Le renderer affiche déjà l'événement canonique `error` : on ne le
+  // réimprime pas (pas de doublon dans la sortie ni dans le NDJSON).
+  let failureReported = false;
 
   try {
     const outcome: RunOutput = await executeRun({
@@ -102,6 +94,10 @@ export const runHandler: CommandHandler = async (ctx) => {
       agentId,
       apiKey: creds.apiKey,
       formatJson,
+      auto: bool(flags, "auto"),
+      onFailure: () => {
+        failureReported = true;
+      },
     });
 
     // La session est TOUJOURS persistée (succès OU échec) : le message
@@ -117,10 +113,12 @@ export const runHandler: CommandHandler = async (ctx) => {
       resultCode = EXIT_OK;
     } else {
       const failMessage = outcome.error ?? "Unknown error";
-      if (!formatJson) {
-        println(danger(`Error: ${failMessage}`));
-      } else {
-        emitNdjson({ type: "error", sessionId: session.id, message: failMessage });
+      if (!failureReported) {
+        if (!formatJson) {
+          println(danger(`Error: ${failMessage}`));
+        } else {
+          emitNdjson({ type: "error", sessionId: session.id, message: failMessage });
+        }
       }
       resultCode = EXIT_ERROR;
     }
@@ -139,7 +137,6 @@ export const runHandler: CommandHandler = async (ctx) => {
     resultCode = EXIT_ERROR;
   } finally {
     process.off("SIGINT", sigintHandler);
-    if (unsubPerm) unsubPerm();
   }
 
   return resultCode;

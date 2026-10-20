@@ -1,4 +1,4 @@
-import type { AgentEvent, GetSessionResponse } from "./types";
+import type { SoryOSEvent, GetSessionResponse } from "./types";
 
 function getApiBase(): string {
   // In the browser, always use relative URLs to avoid CORS and wrong ports (e.g. localhost:8000)
@@ -206,14 +206,14 @@ export async function runTerminal(
   return res.json();
 }
 
-function parseSseChunk(raw: string): AgentEvent | null {
+function parseSseChunk(raw: string): SoryOSEvent | null {
   const normalized = raw.replace(/\r/g, "");
   for (const line of normalized.split("\n")) {
     if (!line.startsWith("data:")) continue;
     const payload = line.slice(5).trim();
     if (!payload || payload === "[DONE]") return null;
     try {
-      return JSON.parse(payload) as AgentEvent;
+      return JSON.parse(payload) as SoryOSEvent;
     } catch {
       return null;
     }
@@ -224,7 +224,7 @@ function parseSseChunk(raw: string): AgentEvent | null {
 async function consumeSse(
   url: string,
   init: RequestInit,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: SoryOSEvent) => void,
 ): Promise<"streamed" | "already_running"> {
   const res = await fetch(url, init);
   if (res.status === 409) return "already_running";
@@ -258,7 +258,7 @@ async function consumeSse(
 /** Resume agent on the last saved user message (no duplicate insert). */
 export async function streamRun(
   sessionId: string,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: SoryOSEvent) => void,
 ): Promise<"streamed" | "already_running"> {
   const base = getApiBase();
   return consumeSse(
@@ -272,7 +272,7 @@ export async function streamRun(
 export async function sendMessage(
   sessionId: string,
   content: string,
-  onEvent: (event: AgentEvent) => void,
+  onEvent: (event: SoryOSEvent) => void,
   model?: string,
   agent?: string,
 ): Promise<"streamed" | "already_running"> {

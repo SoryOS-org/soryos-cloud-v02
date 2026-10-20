@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sessionStore, memorySessionSource, resolveSessionTarget } from "@soryos/session";
 import { runPipeline } from "@soryos/agent";
+import type { SoryOSEvent } from "@soryos/schema";
 
 /**
  * Démarre l'exécution de l'agent pour une session.
@@ -62,7 +63,7 @@ export async function POST(
     async start(controller) {
       sessionStore.update(sessionId, { agent_running: true });
 
-      function send(event: any) {
+      function send(event: SoryOSEvent) {
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         } catch {
@@ -73,14 +74,11 @@ export async function POST(
       try {
         const result = await runPipeline(
           { sessionId, agentId, modelId, apiKey },
-          (event) => send({ ...event, timestamp: Date.now() }),
+          (event) => send(event),
         );
 
         if (result.status === "completed") {
-          send({
-            type: "done",
-            data: { stepsExecuted: result.session.messages.length, toolsExecuted: 0 },
-          });
+          send({ type: "done" });
         } else {
           send({ type: "error", message: result.error });
         }

@@ -3,7 +3,7 @@
 > **Goal**: the terminal CLI and the web GUI must drive the **same engine** and render the
 > **same events**, without duplicating logic in either adapter.
 >
-> **Status**: Phase 0 (CLI v2) ✅ · Phase 1 (`runPipeline` extracted) ✅ · Phase 2 (shared session resolution) ✅ · Phases 3-4 pending.
+> **Status**: Phase 0 (CLI v2) ✅ · Phase 1 (`runPipeline`) ✅ · Phase 2 (shared session resolution) ✅ · Phase 3 (canonical events) ✅ · Phase 4 pending.
 
 ---
 
@@ -30,10 +30,10 @@ Both sides call the **same** `runPipeline()` from `@soryos/agent`. The duplicati
 | Concern | Web (`apps/web`) | CLI (`packages/cli`) | Should be shared? |
 |---|---|---|---|
 | Run invocation | route handler calls `runPipeline()` | `framework/engine.ts` calls `runPipeline()` | ✅ **done** |
-| Session resolution | route resolves session from store | `--session/--continue/--fork` in `commands/*.ts` | **YES** (Phase 2) |
-| Event → UI mapping | SSE route writes `status/text/tool_start/tool_end/done/error` | `framework/render.ts` (shared renderer) | **YES** (Phase 3) |
-| Permission answers | `POST /api/sessions/:id/permissions` | `--auto` auto-approves in `commands/run.ts` | **YES** (Phase 3) |
-| Question answers | `POST /api/sessions/:id/questions` | not handled yet | **YES** (Phase 3) |
+| Session resolution | `resolveSessionTarget` (memory source) | `framework/session.ts` (disk source) | ✅ done |
+| Event → UI mapping | SSE route writes canonical events | `framework/render.ts` (canonical renderer) | ✅ done |
+| Permission answers | `POST /api/sessions/:id/permissions` | `framework/interactions.ts` (`--auto` ⇒ allow, else deny) | ✅ done |
+| Question answers | `POST /api/sessions/:id/questions` | `framework/interactions.ts` (cancelled with feedback) | ✅ done |
 | Rendering | React components | ANSI text | NO (presentation) |
 | Transport | HTTP + SSE | stdout/stderr | NO (transport) |
 
@@ -150,7 +150,7 @@ Two implementations are provided:
 
 ---
 
-## Phase 3 — Shared event contract + renderer
+## Phase 3 — Canonical event contract + renderer ✅ DONE
 
 **Objective**: one canonical event shape, two renderers.
 
@@ -166,27 +166,41 @@ export type SoryOSEvent =
   | { type: "permission_requested"; requestId: string; toolName: string }
   | { type: "question_asked"; requestId: string; questions: unknown[] }
   | { type: "file_changed"; path: string; action: string }
+  | { type: "preview"; url: string }
   | { type: "error"; message: string }
   | { type: "done"; usage?: { input: number; output: number } };
 ```
 
-The bus already emits granular types (`tool.started`, `agent.tool.*`, `permission.requested`…).
-Phase 3 adds a **translator** `toSoryOSEvent(busEvent): SoryOSEvent[]` in `@soryos/schema`
-(or a new `@soryos/events` package) so the GUI and the CLI consume the same vocabulary.
+`toSoryOSEvent(raw)` translates **both** vocabularies (the planner stream and the
+bus) into this single shape. The bus tool events (`tool.started/completed/failed`)
+are deliberately dropped: they duplicate the plan's `tool_use`/`tool_end`.
+
+`runPipeline()` (in `@soryos/agent`) now emits **canonical events only**: it
+subscribes to the bus, filters by session, and forwards everything through
+`toSoryOSEvent()`. Adapters never see a raw event any more.
+
+> The planner's own `done` means "this LLM turn is over", not "the run is over":
+> it is NOT translated, the canonical `done` is reserved for the bus
+> `agent.completed`.
 
 ### 3.2 Two renderers over the same contract
-- **CLI renderer** (`packages/cli/src/framework/render.ts`): ANSI to stderr, NDJSON to stdout
-- **GUI renderer** (`apps/web/lib/events.ts`): maps to the existing React chat blocks
+- **CLI renderer** (`packages/cli/src/framework/render.ts`): canonical events → ANSI on
+  stderr, NDJSON on stdout
+- **GUI renderer** (`apps/web/app/chat/[id]/page.tsx`): canonical events → React chat blocks
+  (`tool_use` replaces the old `tool_start`, `file_changed` replaces `files_changed`)
 
 ### 3.3 Questions & permissions parity
-- CLI: on `question_asked` → cancel the question with feedback (non-interactive), same as opencode
-- CLI: on `permission_requested` → `--auto` allows, otherwise denies with feedback
-- GUI: keeps its existing interactive route
+`packages/cli/src/framework/interactions.ts` handles the canonical requests:
+- `permission_requested` → `--auto` allows, otherwise denies with feedback (never hangs)
+- `question_asked` → cancelled with an honest feedback (never hangs)
+
+The GUI keeps its existing interactive routes.
 
 ### Acceptance criteria
-- [ ] `--format json` NDJSON events match the canonical contract exactly
-- [ ] the GUI's chat blocks are produced by the shared translator
-- [ ] a question asked during a CLI run is cancelled honestly (never hangs)
+- [x] `--format json` NDJSON events match the canonical contract exactly
+- [x] the GUI's chat blocks are produced by the shared translator
+- [x] a question asked during a CLI run is cancelled honestly (never hangs)
+- [x] 17 unit tests in `packages/schema/__tests__/events.test.ts`
 
 ---
 
@@ -230,7 +244,7 @@ Add a test that fails if any adapter re-implements run logic:
 | 0.5 | CLI interactive REPL (`interactive`/`i`/`chat`: prompt, history, slash commands) | ✅ done | 0, 1 |
 | 1 | `runPipeline` extracted into `@soryos/agent` | ✅ done | — |
 | 2 | `resolveSessionTarget` in `@soryos/session` | ✅ done | Phase 1 |
-| 3 | Canonical event contract + 2 renderers + questions/permissions parity | M | Phase 1, 2 |
+| 3 | Canonical event contract + 2 renderers + questions/permissions parity | ✅ done | Phase 1, 2 |
 | 4 | Parity test harness + CI grep guard | S | Phase 3 |
 
 ## Explicit non-goals

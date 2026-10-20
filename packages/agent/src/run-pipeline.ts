@@ -1,6 +1,7 @@
-import { SessionData, ChatImageAttachment } from "@soryos/schema";
+import { SessionData, ChatImageAttachment, toSoryOSEvent, type SoryOSEvent } from "@soryos/schema";
 import { sessionStore } from "@soryos/session";
 import { workspaceManager } from "@soryos/workspace";
+import { globalEventBus } from "@soryos/bus";
 import { agentRuntime } from "./runtime";
 import type { AgentRunOptions } from "./types";
 
@@ -21,7 +22,7 @@ export type RunPipelineResult =
 
 export async function runPipeline(
   options: RunPipelineOptions,
-  emit: (event: { type: string; [key: string]: any }) => void,
+  emit: (event: SoryOSEvent) => void,
 ): Promise<RunPipelineResult> {
   const { sessionId, prompt, images, agentId, modelId, apiKey } = options;
   let lastErrorMessage: string | undefined;
@@ -58,6 +59,26 @@ export async function runPipeline(
     });
   }
 
+  // Flux CANONIQUE : le planner ET le bus sont traduits dans le même
+  // vocabulaire (`SoryOSEvent`) — les adaptateurs (CLI, SSE, NDJSON)
+  // rendent donc exactement les mêmes faits.
+  const emitCanonical = (event: unknown) => {
+    const canonical = toSoryOSEvent(event);
+    if (canonical) emit(canonical);
+  };
+
+  // Les événements du bus que le planner n'émet pas (permissions, questions,
+  // fichiers, processus…) remontent dans le même flux canonique.
+  const unsubscribeBus = globalEventBus.on("*", (busEvent: any) => {
+    if (busEvent?.sessionId && busEvent.sessionId !== sessionId) return;
+
+    // `agent.failed` porte un message générique : si le planner a déjà
+    // remonté une erreur précise, on ne la duplique pas.
+    if (busEvent?.type === "agent.failed" && lastErrorMessage) return;
+
+    emitCanonical(busEvent);
+  });
+
   const runOptions: AgentRunOptions = {
     sessionId,
     modelId: modelId ?? session.model,
@@ -70,7 +91,7 @@ export async function runPipeline(
       if (event?.type === "error" && typeof event.message === "string" && event.message.trim()) {
         lastErrorMessage = event.message;
       }
-      emit(event);
+      emitCanonical(event);
     },
   };
 
@@ -97,5 +118,7 @@ export async function runPipeline(
       session: sessionStore.get(sessionId) ?? null,
       error,
     };
+  } finally {
+    unsubscribeBus();
   }
 }

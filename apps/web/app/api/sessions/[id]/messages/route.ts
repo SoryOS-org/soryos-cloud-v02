@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sessionStore } from "@soryos/session";
 import { runPipeline } from "@soryos/agent";
-import { validateChatImages, type ChatImageAttachment } from "@soryos/schema";
+import { validateChatImages, type ChatImageAttachment, type SoryOSEvent } from "@soryos/schema";
 
 export async function POST(
   req: NextRequest,
@@ -45,9 +45,9 @@ export async function POST(
       let errorText = "";
       sessionStore.update(id, { agent_running: true });
 
-      function send(event: any) {
-        if (event?.type === "text" && event.delta) assistantText += event.delta;
-        if (event?.type === "error") errorText += `\n\n⚠️ ${event.message || "Erreur inconnue"}`;
+      function send(event: SoryOSEvent) {
+        if (event.type === "text" && event.delta) assistantText += event.delta;
+        if (event.type === "error") errorText += `\n\n⚠️ ${event.message || "Erreur inconnue"}`;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         } catch {
@@ -65,7 +65,7 @@ export async function POST(
             modelId: body.model,
             apiKey: body.apiKey,
           },
-          (event) => send({ ...event, timestamp: Date.now() }),
+          (event) => send(event),
         );
 
         if (pipelineResult.status === "completed") {
@@ -86,7 +86,7 @@ export async function POST(
             });
             sessionStore.update(id, { messages: stored.messages });
           }
-          send({ type: "done", data: { stepsExecuted: pipelineResult.session.messages.length, toolsExecuted: 0 } });
+          send({ type: "done" });
         } else {
           send({ type: "error", message: pipelineResult.error });
         }

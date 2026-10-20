@@ -14,7 +14,7 @@ import {
   appendAssistantTool,
   updateAssistantTool,
 } from "@/lib/chat-blocks";
-import type { AgentEvent, ChatMessage } from "@soryos/schema";
+import type { ChatMessage, SoryOSEvent } from "@soryos/schema";
 import type { GetSessionResponse } from "@/lib/types";
 import { ChatPanel } from "@/components/chat-panel";
 import { PreviewPanel } from "@/components/preview-panel";
@@ -250,7 +250,8 @@ export default function ChatPage({
       setLoading(true);
       setStatus("Starting agent...");
 
-      const handleEvent = (ev: AgentEvent) => {
+      // Le flux est CANONIQUE (SoryOSEvent) — le même vocabulaire que le CLI.
+      const handleEvent = (ev: SoryOSEvent) => {
         if (gen !== genRef.current) return;
 
         if (ev.type === "status") {
@@ -261,7 +262,7 @@ export default function ChatPage({
         } else if (ev.type === "text" && ev.delta) {
           textBufferRef.current += ev.delta;
           scheduleFlush(gen);
-        } else if (ev.type === "tool_start") {
+        } else if (ev.type === "tool_use") {
           flushText(gen);
           setMessages((prev) =>
             appendAssistantTool(prev, {
@@ -283,14 +284,14 @@ export default function ChatPage({
             }),
           );
           void refreshFiles();
-        } else if ((ev as { type: string }).type === "error") {
-          const message = (ev as { message?: string }).message || "Erreur inconnue";
+        } else if (ev.type === "error") {
+          const message = ev.message || "Erreur inconnue";
           textBufferRef.current += `\n\n⚠️ ${message}`;
           scheduleFlush(gen);
           setStatus(message);
         } else if (ev.type === "preview" && ev.url) {
           setPreviewUrl(ev.url);
-        } else if (ev.type === "files_changed") {
+        } else if (ev.type === "file_changed") {
           void refreshFiles();
         }
       };
