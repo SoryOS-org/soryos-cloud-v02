@@ -1,8 +1,10 @@
 /**
  * Provider state — le provider IA ACTIF du CLI (celui utilisé par défaut).
  *
- * Stocké sur disque avec les identifiants (`.soryos/credentials.json`) :
- * une clé `activeProvider` dans le même fichier, donc rien à synchroniser.
+ * C'est une préférence UTILISATEUR : elle est stockée globalement
+ * (`~/.soryos/credentials.json`) pour que le CLI installé globalement se
+ * comporte pareil depuis n'importe quel dossier. Un fichier projet peut
+ * surcharger le choix global (même mécanique de couches que les clés).
  */
 
 import { readFile, writeFile, mkdir, rename, rm } from "node:fs/promises";
@@ -45,7 +47,9 @@ async function writeJson(file: string, data: Record<string, unknown>): Promise<v
   }
 }
 
-/** Provider actif (projet d'abord, sinon global). */
+/**
+ * Provider actif : le projet surcharge le global.
+ */
 export async function getActiveProvider(cwd: string = process.cwd()): Promise<string | undefined> {
   for (const file of [projectFile(cwd), globalFile()]) {
     const data = await readJson(file);
@@ -55,12 +59,16 @@ export async function getActiveProvider(cwd: string = process.cwd()): Promise<st
   return undefined;
 }
 
-/** Définit le provider actif (écrit dans le fichier projet). */
+/**
+ * Définit le provider actif.
+ * @param scope "global" (défaut, préférence utilisateur) ou "project"
+ */
 export async function setActiveProvider(
   providerId: string,
+  scope: "global" | "project" = "global",
   cwd: string = process.cwd(),
 ): Promise<void> {
-  const file = projectFile(cwd);
+  const file = scope === "global" ? globalFile() : projectFile(cwd);
   const data = await readJson(file);
   data[ACTIVE_KEY] = providerId;
   await writeJson(file, data);

@@ -100,8 +100,18 @@ soryos-code auth logout [provider]    # supprime la clé stockée
 soryos-code auth switch <provider>    # provider actif (utilisé par défaut)
 ```
 
-- The key is written to `.soryos/credentials.json` with mode **0600** (secrets).
-- `framework/auth.ts` resolves the key: **active provider → disk → env vars**.
+- The key is written to the **global** store `~/.soryos/credentials.json`
+  (mode **0600**) so it works from any directory; a project file
+  `.soryos/credentials.json` can override it.
+- `auth logout` removes the key from both scopes.
+- `framework/auth.ts#resolveProviderContext` resolves:
+  **active provider → disk → env vars**.
+- The **active provider makes authority**: if it has no key, the CLI fails
+  honestly (`Provider "X" is active but has no API key`) instead of silently
+  using another provider.
+- The **model follows the provider**: the session model defaults to the
+  provider's default model, and switching provider in the REPL switches the
+  model too (a Gemini model with an OpenAI provider always fails).
 - The stored key is REALLY used: `@soryos/credentials` hydrates the store at
   startup, and the providers resolve their key through it.
 - `opencode-zen` has a public default (by design) — it shows as connected.

@@ -1,13 +1,18 @@
 /**
- * Auth — détection de la clé d'API réellement utilisable.
+ * Auth — résolution du provider IA et de sa clé.
  *
- * Ordre de résolution (identique à `@soryos/credentials`) :
- *   provider actif (choisi via `soryos-code auth switch`)
- *   → providers enregistrés sur disque
- *   → variables d'environnement
+ * Ordre de résolution :
+ *   1. provider ACTIF (`soryos-code auth switch <provider>`)
+ *   2. providers enregistrés sur disque
+ *   3. variables d'environnement
+ *
+ * Si un provider actif est défini mais SANS clé, on ne bascule PAS en
+ * silence sur un autre provider : c'est une erreur honnête (le provider
+ * choisi par l'utilisateur doit être celui qui est utilisé).
  */
 
 import { credentialManager, PROVIDER_REGISTRY } from "@soryos/credentials";
+import { aiProviderRegistry } from "@soryos/provider";
 import { getActiveProvider } from "./provider-state";
 
 export interface DetectedCredentials {
@@ -15,6 +20,22 @@ export interface DetectedCredentials {
   providerId: string;
   apiKey: string;
   source: string;
+}
+
+/** Contexte provider complet (clé + modèle par défaut). */
+export interface ProviderContext {
+  /** Id du provider retenu. */
+  providerId: string;
+  /** Nom lisible. */
+  providerName: string;
+  /** Clé d'API (null si le provider n'est pas configuré). */
+  apiKey: string | null;
+  /** Origine de la clé (env, store…). */
+  source: string;
+  /** Modèle par défaut du provider. */
+  defaultModel: string;
+  /** Un provider actif a été choisi mais il n'a pas de clé. */
+  activeWithoutKey: boolean;
 }
 
 const PROVIDER_ORDER = [
@@ -53,32 +74,77 @@ export function envVarName(providerId: string): string | undefined {
   return ENV_VARS[providerId]?.find((v) => Boolean(process.env[v]));
 }
 
+/** Modèle par défaut d'un provider (registre réel). */
+export function defaultModelFor(providerId: string): string {
+  try {
+    return aiProviderRegistry.getRequiredProvider(providerId).getDefaultModel();
+  } catch {
+    return "gemini-2.5-flash";
+  }
+}
+
+/** Le provider appartient-il à un modèle donné ? (évite les couples impossibles) */
+export function providerOwnsModel(providerId: string, modelId: string): boolean {
+  try {
+    const provider = aiProviderRegistry.getRequiredProvider(providerId);
+    return provider.listModels().some((m) => m.id === modelId);
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Première clé d'API utilisable.
- * @returns null si aucun provider n'est configuré
+ * Résout le provider à utiliser et sa clé.
+ * @param options.cwd répertoire de lecture du provider actif
+ * @returns le contexte provider (clé null si non configuré)
  */
-export async function detectProviderAndKey(): Promise<DetectedCredentials | null> {
-  const active = await getActiveProvider();
-  const candidates = active
-    ? [active, ...PROVIDER_ORDER.filter((p) => p !== active)]
-    : PROVIDER_ORDER;
+export async function resolveProviderContext(options?: { cwd?: string }): Promise<ProviderContext> {
+  const active = await getActiveProvider(options?.cwd);
 
-  for (const providerId of candidates) {
+  const contextFor = (providerId: string): ProviderContext => {
     const status = credentialManager.getProviderStatus(providerId);
-    if (!status?.configured || !status.maskedKey) continue;
-
     const resolved = credentialManager.resolveCredentials(providerId);
-    if (!resolved.apiKey) continue;
-
+    const configured = Boolean(status?.configured && resolved.apiKey);
     return {
-      provider: status.name,
       providerId,
-      apiKey: resolved.apiKey,
-      source: resolved.source,
+      providerName: status?.name ?? PROVIDER_REGISTRY[providerId]?.name ?? providerId,
+      apiKey: configured ? resolved.apiKey! : null,
+      source: status?.sourceLabel ?? "not configured",
+      defaultModel: defaultModelFor(providerId),
+      activeWithoutKey: false,
     };
+  };
+
+  // 1. Provider actif : il fait autorité (même sans clé → erreur honnête).
+  if (active) {
+    const context = contextFor(active);
+    if (context.apiKey) return context;
+    return { ...context, activeWithoutKey: true };
   }
 
-  return null;
+  // 2. Premier provider configuré (disque ou env).
+  for (const providerId of PROVIDER_ORDER) {
+    const context = contextFor(providerId);
+    if (context.apiKey) return context;
+  }
+
+  // 3. Aucun provider configuré : on retourne le premier connu (clé absente).
+  return contextFor(PROVIDER_ORDER[0]);
+}
+
+/**
+ * Première clé d'API utilisable.
+ * @returns null si aucun provider n'est configuré OU si le provider actif n'a pas de clé
+ */
+export async function detectProviderAndKey(): Promise<DetectedCredentials | null> {
+  const context = await resolveProviderContext();
+  if (!context.apiKey) return null;
+  return {
+    provider: context.providerName,
+    providerId: context.providerId,
+    apiKey: context.apiKey,
+    source: context.source,
+  };
 }
 
 /** Liste des providers IA déclarés (pour les pickers). */

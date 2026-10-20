@@ -10,12 +10,19 @@ import {
 } from "../src/store";
 
 let dir: string;
+let realHome: string | undefined;
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "soryos-cred-"));
+  // Isolation : le store GLOBAL (~/.soryos) est redirigé vers le répertoire
+  // temporaire, sinon l'état réel de la machine pollue les tests.
+  realHome = process.env.HOME;
+  process.env.HOME = dir;
 });
 
 afterEach(async () => {
+  if (realHome === undefined) delete process.env.HOME;
+  else process.env.HOME = realHome;
   await rm(dir, { recursive: true, force: true });
 });
 

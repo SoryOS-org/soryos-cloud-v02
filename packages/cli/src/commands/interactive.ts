@@ -10,7 +10,7 @@ import { cliSessionStore } from "../cli-session-store";
 import { CommandHandler } from "../framework/spec";
 import { startInteractive } from "../framework/interactive";
 import { resolveCliSession } from "../framework/session";
-import { detectProviderAndKey } from "../framework/auth";
+import { detectProviderAndKey, resolveProviderContext } from "../framework/auth";
 import { fail, EXIT_ERROR, requireInteractive } from "../framework/ui";
 import { str, bool } from "../framework/flags";
 
@@ -38,6 +38,12 @@ export const interactiveHandler: CommandHandler = async (ctx) => {
 
   const creds = await detectProviderAndKey();
   if (!creds) {
+    const context = await resolveProviderContext();
+    if (context.activeWithoutKey) {
+      return fail(
+        `Provider "${context.providerName}" is active but has no API key. Run: soryos-code auth login ${context.providerId}`,
+      );
+    }
     return fail("API key required: set GEMINI_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY");
   }
 

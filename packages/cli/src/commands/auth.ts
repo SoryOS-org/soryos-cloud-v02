@@ -130,7 +130,9 @@ async function loginHandler(providerArg?: string, input?: TerminalInput): Promis
   }
 
   try {
-    const result = await credentialManager.persist(providerId, fields, "project");
+    // Portée GLOBALE : la clé doit fonctionner depuis n'importe quel dossier
+    // (le CLI est installé globalement). Un projet peut surcharger.
+    const result = await credentialManager.persist(providerId, fields, "global");
     ok(`${def.name} connected → ${result.file}`);
     if (owned) terminal.stop();
     return EXIT_OK;
@@ -174,8 +176,10 @@ async function logoutHandler(providerArg?: string, input?: TerminalInput): Promi
   }
 
   try {
-    const result = await credentialManager.remove(providerId, "project");
-    if (result.removed) {
+    // On retire la clé des deux portées (globale + projet).
+    const global = await credentialManager.remove(providerId, "global");
+    const project = await credentialManager.remove(providerId, "project");
+    if (global.removed || project.removed) {
       ok(`${displayName(providerId)} disconnected.`);
     } else {
       info(`${displayName(providerId)} had no stored credential (env vars are untouched).`);

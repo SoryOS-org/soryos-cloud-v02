@@ -426,8 +426,11 @@ soryos-code auth logout google         # supprime la clé stockée
 soryos-code auth switch openai         # provider actif par défaut
 ```
 
-- La clé est écrite dans `.soryos/credentials.json` (permissions **0600**)
+- La clé est écrite dans `~/.soryos/credentials.json` (global, permissions **0600**) → elle marche depuis n'importe quel dossier
+- Un fichier projet `.soryos/credentials.json` peut surcharger
 - Résolution : **provider actif → clé stockée → variables d'environnement**
+- Si le provider actif n'a pas de clé → erreur honnête (pas de bascule silencieuse)
+- Le **modèle suit le provider** (le modèle par défaut du provider est utilisé)
 - La clé stockée est **réellement utilisée** par l'agent (`@soryos/credentials`)
 
 ### Output Conventions (opencode-style)

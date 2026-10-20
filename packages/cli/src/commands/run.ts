@@ -12,7 +12,7 @@ import { workspaceManager } from "@soryos/workspace";
 import { executeRun, type RunOutput } from "../framework/engine";
 import { cliSessionStore } from "../cli-session-store";
 import { resolveCliSession } from "../framework/session";
-import { detectProviderAndKey } from "../framework/auth";
+import { detectProviderAndKey, resolveProviderContext } from "../framework/auth";
 import { CommandContext, CommandHandler } from "../framework/spec";
 import { bold, cyan, dim, green, yellow, red, blue, warn, danger, println, fail, emitNdjson, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT, readStdinIfPiped } from "../framework/ui";
 import { SessionTargetFlags, ModelFlags, FormatFlags, PermissionFlags, str, bool } from "../framework/flags";
@@ -43,7 +43,15 @@ export const runHandler: CommandHandler = async (ctx) => {
   if (!prompt) return fail("Prompt is required (positional args or piped stdin).");
 
   const creds = await detectProviderAndKey();
-  if (!creds) return fail("API key required: set GEMINI_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY");
+  if (!creds) {
+    const context = await resolveProviderContext();
+    if (context.activeWithoutKey) {
+      return fail(
+        `Provider "${context.providerName}" is active but has no API key. Run: soryos-code auth login ${context.providerId}`,
+      );
+    }
+    return fail("API key required: set GEMINI_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY");
+  }
 
   let session: SessionData;
   try {

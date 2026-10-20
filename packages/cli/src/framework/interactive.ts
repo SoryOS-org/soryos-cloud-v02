@@ -18,7 +18,7 @@ import { bold, cyan, dim, green, red, warn, danger, println, requireInteractive,
 import { executeRun } from "./engine";
 import { pick, ok, info } from "./terminal";
 import { TerminalInput, parseMouseEvent, type TerminalKey } from "./input";
-import { aiProviderIds, detectProviderAndKey } from "./auth";
+import { aiProviderIds, defaultModelFor, detectProviderAndKey, providerOwnsModel } from "./auth";
 import { getActiveProvider, setActiveProvider } from "./provider-state";
 import { cliSessionStore } from "../cli-session-store";
 
@@ -337,8 +337,17 @@ export async function startInteractive(opts: InteractiveOptions): Promise<number
       }
       if (outcome.providerId) {
         await setActiveProvider(outcome.providerId);
-        ok(`Provider set to ${PROVIDER_REGISTRY[outcome.providerId]?.name ?? outcome.providerId}`);
-        println(dim("  (the key is resolved at run time — reconnect with /auth or `auth login`)"));
+        const providerName = PROVIDER_REGISTRY[outcome.providerId]?.name ?? outcome.providerId;
+        ok(`Provider set to ${providerName}`);
+
+        // Le modèle doit suivre le provider : un modèle Gemini avec un
+        // provider OpenAI échoue (le modèle détermine le provider appelé).
+        const newDefault = defaultModelFor(outcome.providerId);
+        if (!providerOwnsModel(outcome.providerId, model)) {
+          model = newDefault;
+          sessionStore.update(session.id, { model });
+          ok(`Model set to ${model} (default of ${providerName})`);
+        }
       }
       if (outcome.action === "exit") {
         exitCode = outcome.exitCode ?? EXIT_OK;
