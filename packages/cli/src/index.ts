@@ -1,8 +1,13 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S npx tsx
 /**
  * @soryos/cli — CLI standalone du moteur autonome SoryOS-Code.
  * Structure inspirée d'opencode : arbre de commandes déclaratif + handlers
  * lazy-loading + conventions stdout/stderr + --format json + exit codes.
+ *
+ * Lancement :
+ *   npm run cli -- <commande>      (depuis la racine du dépôt)
+ *   npx tsx packages/cli/src/index.ts <commande>
+ *   node_modules/.bin/soryos-code <commande>  (après npm link)
  */
 
 import { parseInvocation, printRootHelp, printCommandHelp, ROOT_SPEC } from "./framework/spec";

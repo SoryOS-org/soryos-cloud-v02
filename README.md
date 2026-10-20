@@ -322,6 +322,34 @@ npm run test:engine  # engine test suite (permissions, provider, tool, execution
 
 The SoryOS-Code CLI is a standalone engine that runs the **same `@soryos/agent` runtime** as the Next.js web app — no duplicate implementation. It shares the exact code path: session store → agent runtime → tools → execution provider → event bus. The only difference is the event sink: the web app streams events via SSE routes, while the CLI renders them to stderr/stdout.
 
+### Launching it
+
+```bash
+# 1. From the repo root (no install needed)
+npm run cli -- --help
+npm run cli -- interactive
+
+# 2. Via the workspace binary (already linked in node_modules/.bin)
+./node_modules/.bin/soryos-code interactive
+
+# 3. Globally, from any directory
+cd packages/cli && npm link
+soryos-code interactive
+```
+
+`npm run cli -- <args>` forwards everything after `--` to the CLI, so
+`npm run cli -- run "fix the bug"` works as expected.
+
+### Credentials
+
+The agent needs a real provider key in the environment (checked by `soryos-code auth`):
+
+```bash
+export GEMINI_API_KEY=...   # or GOOGLE_API_KEY / OPENAI_API_KEY / MISTRAL_API_KEY
+```
+
+Without a key the CLI fails **honestly** (exit code 1) instead of pretending to work.
+
 ```bash
 # Help
 npx tsx packages/cli/src/index.ts --help

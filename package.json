@@ -8,14 +8,17 @@
     "lint": "npx turbo lint",
     "typecheck": "npx turbo typecheck",
     "test:engine": "npx turbo test:engine",
-    "doctor": "npx ts-node scripts/doctor.ts"
+    "doctor": "npx ts-node scripts/doctor.ts",
+    "cli": "tsx packages/cli/src/index.ts",
+    "cli:interactive": "tsx packages/cli/src/index.ts interactive"
   },
   "devDependencies": {
-    "turbo": "^2.2.3",
-    "typescript": "^5.6.3",
-    "ts-node": "^10.9.2",
     "react": "19.0.0",
-    "react-dom": "19.0.0"
+    "react-dom": "19.0.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.15",
+    "turbo": "^2.2.3",
+    "typescript": "^5.6.3"
   },
   "workspaces": [
     "apps/*",

@@ -1,7 +1,18 @@
 # `@soryos/cli` — Agent Operating Guidelines
 
 ## Overview
-The SoryOS-Code CLI is a standalone engine that runs the same **`@soryos/agent` runtime** as the Next.js web app, but in a non-interactive terminal. It shares the exact same code path: session store → agent runtime → tools → execution provider → event bus. There is **no duplicate implementation** — the CLI and the web app both call `@soryos/agent` directly.
+The SoryOS-Code CLI is a standalone engine that runs the same **`@soryos/agent` runtime** as the Next.js web app, but in a non-interactive terminal. It shares the exact same code path: session store → agent runtime → tools → execution provider → event bus. There is **no duplicate implementation** — the CLI and the web app both call `@soryos/agent`'s `runPipeline()`.
+
+## Launching
+
+```bash
+npm run cli -- <command>              # from the repo root
+./node_modules/.bin/soryos-code <cmd>  # workspace binary
+soryos-code <command>                  # after `cd packages/cli && npm link`
+```
+
+The entry point is `packages/cli/src/index.ts` (shebang `#!/usr/bin/env -S npx tsx`).
+`tsx` is a **root devDependency** — the CLI runs TypeScript directly, no build step.
 
 ## Architecture
 
