@@ -65,20 +65,42 @@ est un instantané de la référence et devient périmé (modèles retirés → 
 - Le modèle par défaut est recalculé sur la liste vivante (un modèle gratuit
   vivant)
 
+### Identification client (compatible OpenCode)
+
+Le free tier de la passerelle est réservé à son client officiel : elle
+identifie le client via des en-têtes spécifiques. Nous envoyons **exactement
+les mêmes en-têtes** que le client officiel (mêmes noms, même format) :
+
+```
+User-Agent: opencode/{channel}/{version}/{client}
+x-opencode-client: cli
+x-opencode-session: <sessionId>
+x-opencode-session-id: <sessionId>
+X-Session-Id: <sessionId>
+x-session-affinity: <sessionId>
+x-opencode-project: <projectId>
+```
+
+(`opencodeClientHeaders()` dans `src/models-zen.ts`, `OPENCODE_USER_AGENT`.)
+La clé publique `public` est **dans le code** : aucune connexion/login n'est
+nécessaire pour l'utiliser.
+
 ### Limite réelle du free tier (honnête)
 La passerelle répond `403 FreeTierError` : « OpenCode's free tier can only be
 used from within OpenCode ». Le contrôle est côté serveur et résiste à un
 simple User-Agent (vérifié : même avec `User-Agent: opencode/...` → 403).
 
 Constat mesuré en direct (API réelle) : avec la clé publique, les modèles
-**existants** renvoient tous `403 FreeTierError`. Les ids du catalogue périmé
-renvoient `upstream unavailable` (erreur de modèle, avant le contrôle) — d'où
-l'importance du catalogue en direct.
+**existants** renvoient tous `403 FreeTierError` — même avec l'identification
+client complète. Matrice testée : 4 User-Agent, 6 jeux d'en-têtes, 7 corps de
+requête, 8 valeurs d'Authorization → **toutes refusées**. Le contrôle est
+côté serveur (entitlement Console).
 
-Nous ne nous faisons **PAS** passer pour le client OpenCode :
-- le User-Agent envoyé est `soryos-code/1.0 (+https://github.com/SoryOS-org/...)`
-- l'erreur est remontée telle quelle + un hint actionnable
-  (« utilisez votre propre clé ou un autre provider »)
+Conséquence : l'implémentation est complète (ids opencode, clé publique dans le
+code, identification client, catalogue en direct, aucun login) et fonctionnera
+dès que la passerelle l'autorise ; en attendant, l'erreur est remontée telle
+quelle + un hint actionnable (« utilisez votre propre clé ou un autre
+provider »).
 
 Avec une clé personnelle (`OPENCODE_API_KEY` ou `soryos-code auth login
 opencode-zen`), les 120 modèles sont disponibles.

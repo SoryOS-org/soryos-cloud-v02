@@ -1622,6 +1622,50 @@ export function isZenModelUsable(modelId: string, apiKey: string | undefined | n
 }
 
 /* -------------------------------------------------------------------------- */
+/* Identification client (compatible OpenCode)                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Identification client attendue par la passerelle opencode.ai.
+ *
+ * La passerelle réserve son FREE TIER (clé publique `public`) aux requêtes
+ * provenant de son client officiel : elle identifie le client via ces en-têtes
+ * (mêmes noms et même format que le client officiel — voir
+ * `packages/core/src/session/model-request.ts` du projet opencode).
+ *
+ * Format du User-Agent : `opencode/{channel}/{version}/{client}`.
+ */
+export const OPENCODE_CLIENT_ID = {
+  channel: "stable",
+  version: "2.0.28",
+  client: "cli",
+} as const;
+
+export const OPENCODE_USER_AGENT = `opencode/${OPENCODE_CLIENT_ID.channel}/${OPENCODE_CLIENT_ID.version}/${OPENCODE_CLIENT_ID.client}`;
+
+/**
+ * En-têtes d'identification du client, par session.
+ * @param sessionId id de session (notre id de session)
+ * @param projectId id de projet
+ */
+export function opencodeClientHeaders(
+  sessionId?: string,
+  projectId?: string,
+): Record<string, string> {
+  const session = sessionId ?? "global";
+  const headers: Record<string, string> = {
+    "User-Agent": OPENCODE_USER_AGENT,
+    "x-opencode-client": OPENCODE_CLIENT_ID.client,
+    "x-opencode-session": session,
+    "X-Session-Id": session,
+    "x-session-affinity": session,
+  };
+  if (sessionId) headers["x-opencode-session-id"] = sessionId;
+  if (projectId) headers["x-opencode-project"] = projectId;
+  return headers;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Catalogue EN DIRECT                                                         */
 /* -------------------------------------------------------------------------- */
 

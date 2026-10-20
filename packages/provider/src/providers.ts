@@ -8,20 +8,26 @@ import { SUPPORTED_AI_MODELS } from "./models";
 
 /**
  * Message d'erreur actionnable quand la passerelle refuse le free tier.
- * La passerelle opencode.ai réserve le free tier à son client officiel :
- * nous ne nous faisons PAS passer pour lui, on explique donc la situation.
+ *
+ * La passerelle opencode.ai réserve le free tier (clé publique `public`) à
+ * son client officiel : nous envoyons l'identification client attendue
+ * (User-Agent + en-têtes x-opencode-*, comme le client officiel), mais le
+ * contrôle est fait côté serveur (vérifié : aucune combinaison d'en-têtes,
+ * de corps ou de clé ne passe). On explique donc la situation et la solution.
  */
 function freeTierHint(errorBody: string): string | null {
   if (!errorBody.includes("FreeTierError")) return null;
   return (
-    " — le free tier d'OpenCode Zen est réservé au client OpenCode officiel. " +
-    "Utilisez votre propre clé (soryos-code auth login opencode-zen) ou un autre provider."
+    " — le free tier d'OpenCode Zen (clé publique) est réservé par le vendor " +
+    "à son client officiel ; l'identification client est déjà envoyée. " +
+    "Utilisez votre propre clé (soryos-code auth login opencode-zen) " +
+    "ou un autre provider."
   );
 }
 
 /** User-Agent honnête : nous ne nous faisons PAS passer pour le client OpenCode. */
 const SORYOS_USER_AGENT = "soryos-code/1.0 (+https://github.com/SoryOS-org/soryos-cloud-v02)";
-import { ZEN_MODELS, ZEN_DEFAULT_MODEL, fetchZenModels, mergeZenCatalog, type ZenModel } from "./models-zen";
+import { ZEN_MODELS, ZEN_DEFAULT_MODEL, fetchZenModels, mergeZenCatalog, opencodeClientHeaders, type ZenModel } from "./models-zen";
 import { resolveLiveCredential } from "./credential-bridge";
 import { buildGoogleContents, buildOpenAIMessages, buildAnthropicMessages } from "./helpers";
 
@@ -326,6 +332,18 @@ export class GenericAIProvider implements AIProvider {
     }
   }
 
+  /**
+   * En-têtes de la requête : identification client OpenCode (exigée par le
+   * free tier de la passerelle) + notre User-Agent elsewhere.
+   */
+  protected requestHeaders(options: { apiKey: string; sessionId?: string }): Record<string, string> {
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${options.apiKey}`,
+      ...opencodeClientHeaders(options.sessionId),
+    };
+  }
+
   async generate(options: GenerateOptions): Promise<GenerateResult> {
     const apiKey = this.resolveKey(options);
     if (!apiKey) {
@@ -344,10 +362,7 @@ export class GenericAIProvider implements AIProvider {
       const start = Date.now();
       const response = await fetch(`${this.getEndpoint().replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers: this.requestHeaders({ apiKey, sessionId: options.sessionId }),
         body: JSON.stringify({
           model,
           messages,
@@ -398,11 +413,7 @@ export class GenericAIProvider implements AIProvider {
 
     const response = await fetch(`${this.getEndpoint().replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "User-Agent": SORYOS_USER_AGENT,
-      },
+      headers: this.requestHeaders({ apiKey, sessionId: options.sessionId }),
       body: JSON.stringify({
         model,
         messages,

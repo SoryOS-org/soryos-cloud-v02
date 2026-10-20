@@ -9,6 +9,8 @@ import {
   mergeZenCatalog,
   prettifyModelId,
   fetchZenModels,
+  opencodeClientHeaders,
+  OPENCODE_USER_AGENT,
 } from "@soryos/provider/models-zen";
 import { credentialManager, isPublicGatewayKey, PUBLIC_GATEWAY_KEY } from "@soryos/credentials";
 
@@ -74,6 +76,35 @@ describe("catalogue Zen en direct", () => {
   it("échoue proprement sans réseau (null → catalogue statique)", async () => {
     const live = await fetchZenModels("http://127.0.0.1:9/inference/v1", 500);
     expect(live).toBeNull();
+  });
+});
+
+describe("identification client OpenCode", () => {
+  it("envoie les en-têtes d'identification attendus par la passerelle", () => {
+    const headers = opencodeClientHeaders("cli-123", "prj-456");
+    expect(headers["User-Agent"]).toBe(OPENCODE_USER_AGENT);
+    expect(headers["User-Agent"]).toMatch(/^opencode\/.+\/.+\/.+$/);
+    expect(headers["x-opencode-client"]).toBe("cli");
+    expect(headers["x-opencode-session"]).toBe("cli-123");
+    expect(headers["x-opencode-session-id"]).toBe("cli-123");
+    expect(headers["X-Session-Id"]).toBe("cli-123");
+    expect(headers["x-session-affinity"]).toBe("cli-123");
+    expect(headers["x-opencode-project"]).toBe("prj-456");
+  });
+
+  it("fonctionne sans session ni projet", () => {
+    const headers = opencodeClientHeaders();
+    expect(headers["x-opencode-session"]).toBe("global");
+    expect(headers["x-opencode-session-id"]).toBeUndefined();
+    expect(headers["x-opencode-project"]).toBeUndefined();
+  });
+
+  it("la clé publique est dans le code (pas de login nécessaire)", () => {
+    expect(PUBLIC_GATEWAY_KEY).toBe("public");
+    // Le credential manager la renvoie automatiquement quand aucune clé n'est
+    // configurée pour opencode-zen.
+    const resolved = credentialManager.resolveCredentials("opencode-zen");
+    expect(resolved.apiKey).toBe(PUBLIC_GATEWAY_KEY);
   });
 });
 
