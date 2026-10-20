@@ -418,8 +418,6 @@ export async function pick<T>(
       .finally(() => {
         render();
       });
-
-    return promise;
   });
 
   return promise;
