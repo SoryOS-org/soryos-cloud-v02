@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sessionStore } from "@soryos/session";
-import { workspaceManager } from "@soryos/workspace";
-import { runPipeline, type RunPipelineResult } from "@soryos/agent";
+import { runPipeline } from "@soryos/agent";
+import { validateChatImages, type ChatImageAttachment } from "@soryos/schema";
 
 export async function POST(
   req: NextRequest,
@@ -25,31 +25,22 @@ export async function POST(
     return NextResponse.json({ error: "Message content required" }, { status: 400 });
   }
 
-  let images;
+  let images: ChatImageAttachment[] | undefined;
   if (body.images !== undefined) {
-    const { validateChatImages } = await import("@soryos/schema");
     const imageError = validateChatImages(body.images);
     if (imageError) {
       return NextResponse.json({ error: `Invalid images: ${imageError}` }, { status: 400 });
     }
-    images = body.images as any;
+    images = body.images as ChatImageAttachment[];
   }
 
   // Push user message into session
   const now = () => new Date().toISOString();
-  const userMessageId = `user-${Date.now()}`;
-  session.messages.push({
-    id: userMessageId,
-    role: "user",
-    content,
-    ...(images && images.length > 0 ? { images } : {}),
-    created_at: now(),
-  });
-
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       let assistantText = "";
+      // Index AVANT l'ajout du message utilisateur (fait par runPipeline).
       const startIndex = session.messages.length;
       let errorText = "";
       sessionStore.update(id, { agent_running: true });
@@ -66,7 +57,14 @@ export async function POST(
 
       try {
         const pipelineResult = await runPipeline(
-          { sessionId: id, agentId: body.agent, modelId: body.model, apiKey: body.apiKey },
+          {
+            sessionId: id,
+            prompt: content,
+            images,
+            agentId: body.agent,
+            modelId: body.model,
+            apiKey: body.apiKey,
+          },
           (event) => send({ ...event, timestamp: Date.now() }),
         );
 

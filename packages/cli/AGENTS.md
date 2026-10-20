@@ -10,15 +10,53 @@ CLI (packages/cli/src/index.ts)
   ├── framework/spec.ts       # declarative command tree + lazy handler registry
   ├── framework/ui.ts         # stdout/stderr discipline, NDJSON, exit codes
   ├── framework/flags.ts      # shared flag groups (session, model, format, auto)
+  ├── framework/render.ts     # UNIQUE bus→terminal renderer (run + interactive)
+  ├── framework/engine.ts     # UNIQUE execution wrapper around @soryos/agent pipeline
+  ├── framework/interactive.ts# REPL terminal (prompt, history, slash commands)
   ├── cli-session-store.ts    # real JSON persistence on disk
   └── commands/
       ├── run.ts              # non-interactive engine (the core)
+      ├── interactive.ts      # REPL entry point
       ├── session/{list,delete,export,import}.ts
       ├── models.ts           # @soryos/provider registry
       ├── auth.ts             # env key detection
       ├── debug/{paths,config}.ts
       └── plugin.ts           # skill listing
 ```
+
+### Shared engine (single source of truth)
+- `@soryos/agent` exposes `runPipeline(options, emit)` — the **only** place that
+  prepares a session, appends the user message, and calls `agentRuntime.run()`.
+- `framework/engine.ts#executeRun` is the **only** CLI call site of `runPipeline`.
+- `framework/render.ts#attachRenderer` is the **only** bus→terminal renderer
+  (used by both `run` and `interactive` — no duplicated switch statements).
+- The web app calls the same `runPipeline` (`apps/web/app/api/sessions/[id]/messages/route.ts`
+  and `.../run/route.ts`).
+
+## Interactive mode (REPL)
+
+` soryos-code interactive` (aliases `i`, `chat`) opens a terminal session.
+Running `soryos-code` with **no arguments** in a TTY opens it too.
+
+| Feature | Behaviour |
+|---------|-----------|
+| Prompt | `soryos ›` (stderr) |
+| History | up/down arrows (native `readline` history, 100 entries) |
+| Ctrl+C | clears the current line; on an empty line it exits (code 130) |
+| Ctrl+D | exits (code 0) |
+| Non-TTY | refused honestly: "Interactive mode requires an interactive terminal (TTY)" |
+| Persistence | every turn is written to `.soryos/cli-sessions/<id>.json` |
+
+### Slash commands
+| Command | Effect |
+|---------|--------|
+| `/help`, `/h` | list the slash commands |
+| `/exit`, `/quit`, `/q` | leave the session |
+| `/new [title]` | start a new session (keeps the same model/agent) |
+| `/model <id>` | change the model for the next turns |
+| `/agent <role>` | change the agent (`build`/`plan`/`explore`/`code-reviewer`) |
+| `/sessions` | list the 10 most recent sessions |
+| `/clear` | clear the screen |
 
 ## Output Conventions (opencode-style, adapted)
 - **stdout = DATA only** (NDJSON `--format json`, lists, exports)
@@ -32,6 +70,7 @@ CLI (packages/cli/src/index.ts)
 | Command | Subcommands | Purpose |
 |---------|-------------|---------|
 | `run` | — | Non-interactive single prompt (the core) |
+| `interactive` (`i`, `chat`) | — | Terminal REPL session (prompt, history, slash commands) |
 | `session` | `list`, `delete`, `export`, `import` | Disk-backed session management |
 | `models` | — | List available models from `@soryos/provider` |
 | `auth` | — | Detect API keys by provider (env vars) |
@@ -39,7 +78,7 @@ CLI (packages/cli/src/index.ts)
 | `plugin` | — | List available skills (`packages/tool/skills/*.md`) |
 | `help` | — | Show help |
 
-## `run` Flags
+## `run` / `interactive` Flags
 
 | Flag | Alias | Description |
 |------|-------|-------------|
@@ -74,21 +113,22 @@ The `.soryos/` directory is **gitignored** (local state, not source).
 The CLI and the web app share the **exact same runtime path**:
 
 ```
-CLI run → @soryos/agent (agentRuntime.run) → @soryos/tool → @soryos/execution → @soryos/bus → events
-Web run → @soryos/agent (agentRuntime.run) → @soryos/tool → @soryos/execution → @soryos/bus → SSE routes
+CLI run/interactive → @soryos/agent (runPipeline) → @soryos/tool → @soryos/execution → @soryos/bus → events
+Web run/messages    → @soryos/agent (runPipeline) → @soryos/tool → @soryos/execution → @soryos/bus → SSE routes
 ```
 
-Both call `agentRuntime.run()` with the same `AgentRunOptions` shape. The only difference is the **event sink**: the web app streams events via SSE routes (`apps/web/app/api/sessions/[id]/run/route.ts`), while the CLI renders them to stderr/stdout.
+Both call `runPipeline()` from `@soryos/agent`, which owns:
+session preparation → user message append → `agentRuntime.run()` → honest failure.
+The only difference is the **event sink**: the web app streams events via SSE routes
+(`apps/web/app/api/sessions/[id]/run/route.ts`), while the CLI renders them to
+stderr/stdout through `framework/render.ts`.
 
-## Future: Shared CLI/GUI Interface
-
-The current CLI is a thin terminal wrapper. The next phase is to extract a **shared interface layer** that both the CLI and the web app can use, so they look and behave the same:
-
-1. **Extract `run` logic** into a reusable function in `@soryos/agent` (or a new `@soryos/run` package) that accepts an event sink callback.
-2. **Make the CLI a thin adapter** that calls the shared `run` function and renders events to the terminal.
-3. **Make the web app use the same `run` function** and render events to SSE.
-4. **Shared session resolution** (`--session/--continue/--fork`) in `@soryos/session` or a new `@soryos/run` package.
-5. **Shared output formatting** — the NDJSON event format is already the same for both CLI (`--format json`) and web (SSE events).
+### Roadmap
+See `docs/plans/cli-gui-shared-interface.md`:
+- Phase 0 (CLI v2) ✅ · Phase 1 (`runPipeline` extracted) ✅
+- Phase 2 (shared session resolution `--session/--continue/--fork`) ⏳
+- Phase 3 (canonical event contract + questions/permissions parity) ⏳
+- Phase 4 (parity test harness + CI grep guard) ⏳
 
 ## Dependencies
 - `@soryos/agent`, `@soryos/bus`, `@soryos/core`, `@soryos/execution`, `@soryos/permissions`, `@soryos/schema`, `@soryos/session`, `@soryos/tool`

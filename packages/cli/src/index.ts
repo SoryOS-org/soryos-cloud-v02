@@ -21,6 +21,11 @@ async function resolveHandler(path: string[]): Promise<ResolvedHandler | null> {
     case "run":
       return { handler: (await import("./commands")).runHandler };
 
+    case "interactive":
+    case "i":
+    case "chat":
+      return { handler: (await import("./commands/interactive")).interactiveHandler };
+
     case "session":
       if (!sub) return { handler: async () => { printCommandHelp(["session"]); return EXIT_ERROR; } };
       switch (sub) {
@@ -63,8 +68,36 @@ async function resolveHandler(path: string[]): Promise<ResolvedHandler | null> {
  * @returns le code de sortie (0 ok, 1 erreur, 130 interrupt)
  */
 export async function runCLI(argv: string[] = process.argv.slice(2)): Promise<number> {
-  if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
+  if (argv.length === 0) {
+    // Sans argument : on ouvre la session interactive (comme opencode).
+    if (process.stdin.isTTY && process.stderr.isTTY) {
+      const resolved = await resolveHandler(["interactive"]);
+      if (resolved) {
+        const ctx: CommandContext = {
+          invocation: { path: ["interactive"], spec: ROOT_SPEC, positionals: [], flags: {} },
+          stderr: (line?: string) => println(line ?? ""),
+          stdout: writeOut,
+        };
+        try {
+          const exitCode = await resolved.handler(ctx);
+          return typeof exitCode === "number" ? exitCode : EXIT_OK;
+        } catch (err) {
+          fail(err instanceof Error ? err.message : String(err));
+          return EXIT_ERROR;
+        }
+      }
+    }
     printRootHelp();
+    return EXIT_OK;
+  }
+
+  if (argv.includes("--help") || argv.includes("-h")) {
+    const parsed = parseInvocation(ROOT_SPEC, argv);
+    if (!("error" in parsed) && parsed.path.length) {
+      printCommandHelp(parsed.path);
+    } else {
+      printRootHelp();
+    }
     return EXIT_OK;
   }
 

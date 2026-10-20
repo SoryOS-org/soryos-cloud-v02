@@ -31,7 +31,7 @@ export class AgentRuntime extends EventEmitter {
     return this.planner;
   }
 
-  async run(options: AgentRunOptions): Promise<void> {
+  async run(options: AgentRunOptions): Promise<'completed' | 'failed' | 'paused'> {
     if (this.runningSessions.has(options.sessionId)) {
       throw new Error('Agent is already running for this session.');
     }
@@ -66,6 +66,7 @@ export class AgentRuntime extends EventEmitter {
       } else if (result === 'completed') {
         globalEventBus.emit('agent.completed', { sessionId: options.sessionId });
       }
+      return result;
     } catch (error) {
       if (error instanceof Error) {
         this.state.lastError = error;

@@ -275,6 +275,18 @@ export const ROOT_SPEC: CommandSpec = {
       ],
     },
     {
+      name: "interactive",
+      description: "Session interactive dans le terminal (REPL)",
+      aliases: ["i", "chat"],
+      flags: [
+        ...SessionTargetFlags,
+        ...ModelFlags,
+        ...FormatFlags,
+        ...PermissionFlags,
+        { type: "string", name: "title", description: "Titre de la session" },
+      ],
+    },
+    {
       name: "session",
       description: "Gestion des sessions disque (CLI uniquement)",
       subcommands: [

@@ -6,18 +6,17 @@
  * Exit codes : 0 ok, 1 erreur, 130 SIGINT.
  */
 
-import { agentRuntime } from "@soryos/agent";
-import { globalEventBus } from "@soryos/bus";
 import { SessionData } from "@soryos/schema";
+import { globalEventBus } from "@soryos/bus";
 import { sessionStore } from "@soryos/session";
 import { workspaceManager } from "@soryos/workspace";
 import { resolvePermissionRequest } from "@soryos/permissions";
-
+import { executeRun, type RunOutput } from "../framework/engine";
+import { runPipeline, type RunPipelineResult } from "@soryos/agent";
 import { cliSessionStore } from "../cli-session-store";
 import { CommandContext, CommandHandler } from "../framework/spec";
-import { bold, dim, cyan, warn, danger, green, yellow, red, blue, println, fail, emitNdjson, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT, readStdinIfPiped } from "../framework/ui";
+import { bold, cyan, dim, green, yellow, red, blue, warn, danger, println, fail, emitNdjson, EXIT_OK, EXIT_ERROR, EXIT_INTERRUPT, readStdinIfPiped } from "../framework/ui";
 import { SessionTargetFlags, ModelFlags, FormatFlags, PermissionFlags, str, bool } from "../framework/flags";
-import { runPipeline, type RunPipelineResult } from "@soryos/agent";
 
 interface RunFlags {
   session?: string;
@@ -45,7 +44,7 @@ export function detectProviderAndKey(): { provider: string; apiKey: string } | n
   return null;
 }
 
-async function resolveSession(flags: RunFlags, prompt: string): Promise<SessionData> {
+async function resolveSession(flags: RunFlags): Promise<SessionData> {
   let session: SessionData | null = null;
 
   if (flags.fork) {
@@ -66,32 +65,21 @@ async function resolveSession(flags: RunFlags, prompt: string): Promise<SessionD
   } else if (str(flags, "session")) {
     session = await cliSessionStore.get(flags.session!);
     if (!session) {
-      session = newSession(flags.session!, prompt, flags);
-    } else {
-      session.messages.push({
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: prompt,
-        created_at: new Date().toISOString(),
-      });
+      session = newSession(flags.session!, flags);
     }
+    // DO NOT push user message here — runPipeline does that
   } else if (bool(flags, "continue")) {
     session = await cliSessionStore.newest();
     if (!session) throw new Error("No existing session to continue");
-    session.messages.push({
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: prompt,
-      created_at: new Date().toISOString(),
-    });
+    // DO NOT push user message here — runPipeline does that
   } else {
-    session = newSession(undefined, prompt, flags);
+    session = newSession(undefined, flags);
   }
 
   return session!;
 }
 
-function newSession(explicitId: string | undefined, prompt: string, flags: RunFlags): SessionData {
+function newSession(explicitId: string | undefined, flags: RunFlags): SessionData {
   const id = explicitId ?? `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const now = new Date().toISOString();
   return {
@@ -104,14 +92,7 @@ function newSession(explicitId: string | undefined, prompt: string, flags: RunFl
     model: str(flags, "model") ?? "gemini-2.5-flash",
     provider: detectProviderAndKey()?.provider ?? "Google Gemini",
     created_at: now,
-    messages: [
-      {
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: prompt,
-        created_at: now,
-      },
-    ],
+    messages: [], // user message appended by runPipeline
     files: {},
     preview_url: null,
     needs_run: false,
@@ -137,16 +118,12 @@ export const runHandler: CommandHandler = async (ctx) => {
   const creds = detectProviderAndKey();
   if (!creds) return fail("API key required: set GEMINI_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY");
 
-  const session = await resolveSession(flags, prompt);
+  const session = await resolveSession(flags);
   session.confirmDangerous = bool(flags, "auto");
 
+  // Persist session BEFORE run (so session exists for listeners)
   sessionStore.getOrCreate(session.id);
   sessionStore.save(session);
-  workspaceManager.getOrCreateWorkspace(session.id, {
-    environment: "local",
-    providerId: "local",
-    workspacePath: process.cwd(),
-  });
   await cliSessionStore.save(session);
 
   const formatJson = str(flags, "format") === "json";
@@ -184,96 +161,22 @@ export const runHandler: CommandHandler = async (ctx) => {
   let resultCode = EXIT_OK;
 
   try {
-    const unsubscribe = globalEventBus.on("*", (event: any) => {
-      if (event.sessionId && event.sessionId !== session.id) return;
-      const { type, data } = event;
-      if (formatJson) {
-        emitNdjson({ type, sessionId: session.id, timestamp: event.timestamp, ...data });
-      } else {
-        switch (type) {
-          case "agent.started":
-            println(green("● Agent started"));
-            break;
-          case "agent.text":
-          case "agent.streaming.text":
-            break;
-          case "tool.started":
-            println(yellow(`⚙ ${data.toolName}`));
-            break;
-          case "tool.completed":
-            println(green(`✔ ${data.toolName}`));
-            break;
-          case "tool.failed":
-            println(red(`✖ ${data.toolName} — ${data.error}`));
-            break;
-          case "agent.tool.started":
-            println(yellow(`⚙ ${data.toolName}`));
-            break;
-          case "agent.tool.completed":
-            println(green(`✔ ${data.toolName}`));
-            break;
-          case "agent.tool.failed":
-            println(red(`✖ ${data.toolName} — ${data.error}`));
-            break;
-          case "file.changed":
-            println(cyan(`📄 ${data.path} (${data.action})`));
-            break;
-          case "process.started":
-            println(blue(`▶ ${data.command}`));
-            break;
-          case "process.exited":
-            const ec = Number(data.exitCode);
-            println((ec === 0 ? green : red)(`◀ exited ${data.exitCode} (${data.durationMs}ms)`));
-            break;
-          case "permission.requested":
-            println(dim(`⚡ Permission asked: ${data.toolName}`));
-            break;
-          case "permission.granted":
-            println(green(`✔ Permission granted: ${data.toolName}`));
-            break;
-          case "permission.denied":
-            println(red(`✖ Permission denied: ${data.reason}`));
-            break;
-          case "agent.completed":
-            println("");
-            println(bold(green(`✔ Task finished (${data.stepsExecuted} steps, ${data.toolsExecuted} tools)`)));
-            break;
-          case "agent.failed":
-            println(bold(red(`✖ Task failed: ${data.message ?? data.error ?? "unknown error"}`)));
-            resultCode = EXIT_ERROR;
-            break;
-        }
-      }
+    const outcome: RunOutput = await executeRun({
+      session,
+      prompt,
+      agentId,
+      apiKey: creds.apiKey,
+      formatJson,
     });
 
-    const pipelineResult = await runPipeline(
-      {
-        sessionId: session.id,
-        agentId,
-        modelId: session.model,
-        apiKey: creds.apiKey,
-      },
-      (event: any) => {
-        if (event.type === "text" && event.delta) {
-          if (formatJson) {
-          } else if (!process.stdout.isTTY) {
-            process.stdout.write(event.delta as string);
-          } else {
-            process.stderr.write(event.delta as string);
-          }
-        }
-      },
-    );
-
-    if (pipelineResult.status === "completed") {
-      const updatedSession = pipelineResult.session;
-      await cliSessionStore.save(updatedSession);
+    if (outcome.status === "completed") {
+      await cliSessionStore.save(outcome.session!);
       if (!formatJson) {
         println(bold(green(`✔ Task completed`)));
       }
       resultCode = EXIT_OK;
     } else {
-      const failMessage = pipelineResult.error;
+      const failMessage = outcome.error ?? "Unknown error";
       if (!formatJson) {
         println(danger(`Error: ${failMessage}`));
       } else {

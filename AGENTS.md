@@ -149,6 +149,10 @@ npm run dev
 # Help (command tree, flags, exit codes)
 npx tsx packages/cli/src/index.ts --help
 
+# Interactive terminal session (REPL: prompt, history, slash commands)
+npx tsx packages/cli/src/index.ts interactive
+npx tsx packages/cli/src/index.ts i          # alias (also: chat)
+
 # Run a task with the default Build Agent
 npx tsx packages/cli/src/index.ts run "<prompt>"
 
@@ -169,9 +173,10 @@ npx tsx packages/cli/src/index.ts debug paths
 ```
 
 The CLI (`packages/cli`) and the web app (`apps/web`) share the **same engine**: both call
-`@soryos/agent`'s `agentRuntime.run()`. The CLI is a thin terminal adapter (stdout = data,
-stderr = chrome, exit codes 0/1/130); the web app is an SSE adapter over the same runtime.
-Details: `packages/cli/AGENTS.md`.
+`@soryos/agent`'s `runPipeline()` (which owns session preparation, user message and
+`agentRuntime.run()`). The CLI is a thin terminal adapter (stdout = data, stderr = chrome,
+exit codes 0/1/130, interactive REPL); the web app is an SSE adapter over the same pipeline.
+Details: `packages/cli/AGENTS.md` — roadmap: `docs/plans/cli-gui-shared-interface.md`.
 
 ---
 

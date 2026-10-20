@@ -3,7 +3,7 @@
 > **Goal**: the terminal CLI and the web GUI must drive the **same engine** and render the
 > **same events**, without duplicating logic in either adapter.
 >
-> **Status**: Plan written. Phase 0 (CLI v2) done. Phases 1-4 pending.
+> **Status**: Phase 0 (CLI v2) ✅ · Phase 1 (`runPipeline` extracted) ✅ · Phases 2-4 pending.
 
 ---
 
@@ -11,35 +11,35 @@
 
 ```
 apps/web (Next.js)                        packages/cli (Node/tsx)
-  ├─ POST /api/sessions/:id/run  ─┐        ├─ src/index.ts
-  │   → agentRuntime.run()        │        ├─ src/framework/{spec,ui,flags}.ts
-  │   → SSE route writes events   │        ├─ src/cli-session-store.ts
-  │                              │        └─ src/commands/*
-  └───────────────────────────────┘
-              │                                    │
-              └──────────────┬─────────────────────┘
+  ├─ POST /api/sessions/:id/run    ─┐      ├─ src/index.ts
+  ├─ POST /api/sessions/:id/messages ─┤   ├─ src/framework/{spec,ui,flags,render,engine,interactive}.ts
+  │   → runPipeline()                │   ├─ src/cli-session-store.ts
+  │   → SSE route writes events      │   └─ src/commands/*
+  └───────────────────────────────┘        │
+              │                             │
+              └──────────────┬──────────────┘
                              ▼
               @soryos/agent  →  @soryos/tool  →  @soryos/execution
                              ▼
                        @soryos/bus  (globalEventBus)
 ```
 
-Both sides already call the **same** `agentRuntime.run()` with the same `AgentRunOptions`.
-The duplication today is **not** in the engine — it is in the *adapters*:
+Both sides call the **same** `runPipeline()` from `@soryos/agent`. The duplication today is
+**not** in the engine — it is in the *adapters*:
 
 | Concern | Web (`apps/web`) | CLI (`packages/cli`) | Should be shared? |
 |---|---|---|---|
-| Run invocation | route handler calls `agentRuntime.run()` | `commands/run.ts` calls `agentRuntime.run()` | **YES** |
-| Session resolution | route resolves session from store | `--session/--continue/--fork` in `commands/run.ts` | **YES** |
-| Event → UI mapping | SSE route writes `status/text/tool_start/tool_end/done/error` | stderr renderer + NDJSON emitter | **YES** (event contract) |
-| Permission answers | `POST /api/sessions/:id/permissions` | `--auto` auto-approves in `commands/run.ts` | **YES** |
-| Question answers | `POST /api/sessions/:id/questions` | not handled yet | **YES** |
+| Run invocation | route handler calls `runPipeline()` | `framework/engine.ts` calls `runPipeline()` | ✅ **done** |
+| Session resolution | route resolves session from store | `--session/--continue/--fork` in `commands/*.ts` | **YES** (Phase 2) |
+| Event → UI mapping | SSE route writes `status/text/tool_start/tool_end/done/error` | `framework/render.ts` (shared renderer) | **YES** (Phase 3) |
+| Permission answers | `POST /api/sessions/:id/permissions` | `--auto` auto-approves in `commands/run.ts` | **YES** (Phase 3) |
+| Question answers | `POST /api/sessions/:id/questions` | not handled yet | **YES** (Phase 3) |
 | Rendering | React components | ANSI text | NO (presentation) |
 | Transport | HTTP + SSE | stdout/stderr | NO (transport) |
 
 ---
 
-## Phase 1 — Extract the run pipeline into `@soryos/agent`
+## Phase 1 — Extract the run pipeline into `@soryos/agent` ✅ DONE
 
 **Objective**: one function owns "prepare session → attach user message → run → persist".
 
@@ -48,59 +48,54 @@ The duplication today is **not** in the engine — it is in the *adapters*:
 ```ts
 export interface RunPipelineOptions {
   sessionId: string;
-  prompt: string;
-  agentId?: AgentRoleMode;
+  /** Requête utilisateur (ajoutée à la session si fournie). */
+  prompt?: string;
+  /** Pièces jointes (vision) attachées au message utilisateur. */
+  images?: ChatImageAttachment[];
+  agentId?: string;
   modelId?: string;
-  apiKey: string;
-  /** Files attached to the prompt (read from disk by the caller). */
-  files?: Array<{ mimeType: string; data: string; filename?: string }>;
+  apiKey?: string;
 }
 
-export interface RunPipelineResult {
-  status: "completed" | "failed" | "interrupted";
-  session: SessionData | null;
-  error?: string;
-}
+export type RunPipelineResult =
+  | { status: "completed"; session: SessionData }
+  | { status: "failed"; session: SessionData | null; error: string };
 
 export async function runPipeline(
   options: RunPipelineOptions,
-  emit: (event: AgentEvent) => void,
+  emit: (event: { type: string; [key: string]: any }) => void,
 ): Promise<RunPipelineResult>;
 ```
 
 Responsibilities (moved **verbatim** from the adapters, not rewritten):
 - validate prompt / credentials (honest errors)
 - load the session from the store, append the user message
+- ensure a workspace exists for the session (local ⇒ `process.cwd()`)
 - call `agentRuntime.run({ sessionId, modelId, agentId, apiKey, emit })`
 - catch failures → `status: "failed"` with the real error message
 - return the updated session (caller decides where to persist it)
 
+> `AgentRuntime.run()` now returns `'completed' | 'failed' | 'paused'` (it used to return
+> `void`), so a planner failure that does **not** throw is honestly reported as
+> `status: "failed"` instead of a false success.
+
 ### 1.2 Adapt the web route
 
-`apps/web/app/api/sessions/[id]/run/route.ts` becomes:
-
-```ts
-const result = await runPipeline({ sessionId, prompt, agentId, modelId, apiKey }, (event) => {
-  sse.write(event);   // unchanged transport
-});
-```
+`apps/web/app/api/sessions/[id]/messages/route.ts` and `.../run/route.ts` now call
+`runPipeline()` and only write the SSE transport.
 
 ### 1.3 Adapt the CLI
 
-`packages/cli/src/commands/run.ts` becomes:
-
-```ts
-const result = await runPipeline({ sessionId, prompt, agentId, modelId, apiKey }, (event) => {
-  render(event);      // stderr renderer or NDJSON emitter
-});
-```
+`packages/cli/src/framework/engine.ts#executeRun` is the **single** CLI call site of
+`runPipeline()`. It is used by both `commands/run.ts` (non-interactive) and
+`framework/interactive.ts` (REPL), so the terminal modes cannot drift apart.
 
 ### Acceptance criteria
-- [ ] `npm run typecheck` → 0 errors
-- [ ] `npm run test:engine` → all green
-- [ ] `soryos-code run "x"` produces the same event sequence as before the refactor
-- [ ] the web `/run` route still streams `status/text/tool_start/tool_end/done/error`
-- [ ] **no** duplicated run logic left in `apps/web` or `packages/cli`
+- [x] `npm run typecheck` → 0 errors
+- [x] `npm run test:engine` → all green
+- [x] `soryos-code run "x"` produces the same event sequence as before the refactor
+- [x] the web `/run` route still streams `status/text/tool_start/tool_end/done/error`
+- [x] **no** duplicated run logic left in `apps/web` or `packages/cli`
 
 ---
 
@@ -217,14 +212,16 @@ Add a test that fails if any adapter re-implements run logic:
 | Phase | Scope | Effort | Depends on |
 |---|---|---|---|
 | 0 | CLI v2 (declarative tree, `run`/`session`/`models`/`auth`/`debug`/`plugin`, NDJSON, disk sessions) | ✅ done | — |
-| 1 | `runPipeline` extracted into `@soryos/agent` | M | — |
+| 0.5 | CLI interactive REPL (`interactive`/`i`/`chat`: prompt, history, slash commands) | ✅ done | 0, 1 |
+| 1 | `runPipeline` extracted into `@soryos/agent` | ✅ done | — |
 | 2 | `resolveSessionTarget` in `@soryos/session` | S | Phase 1 |
 | 3 | Canonical event contract + 2 renderers + questions/permissions parity | M | Phase 1, 2 |
 | 4 | Parity test harness + CI grep guard | S | Phase 3 |
 
 ## Explicit non-goals
 
-- **No TUI framework port** (opencode uses `@opentui` + Solid; we stay text-first)
+- **No TUI framework port** (opencode uses `@opentui` + Solid; we stay text-first).
+  The interactive mode is a plain `readline` REPL — no second rendering engine.
 - **No Effect** (the Spec tree is hand-rolled, Promise-based — matches the repo style)
 - **No daemon / background service** (opencode spawns `opencode serve`; the CLI runs in-process)
 - **No remote auth proxy** (opencode stores credentials server-side; we read env vars)

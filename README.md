@@ -326,6 +326,11 @@ The SoryOS-Code CLI is a standalone engine that runs the **same `@soryos/agent` 
 # Help
 npx tsx packages/cli/src/index.ts --help
 
+# Interactive terminal session (REPL) — same as running the CLI with no args
+npx tsx packages/cli/src/index.ts interactive
+npx tsx packages/cli/src/index.ts i            # alias
+npx tsx packages/cli/src/index.ts chat         # alias
+
 # Run a single prompt (non-interactive)
 npx tsx packages/cli/src/index.ts run "build a todo app"
 
@@ -346,13 +351,41 @@ npx tsx packages/cli/src/index.ts debug paths
 npx tsx packages/cli/src/index.ts debug config
 ```
 
+### Interactive mode (terminal REPL)
+
+```bash
+npx tsx packages/cli/src/index.ts interactive
+```
+
+```
+SoryOS-Code interactive
+Session: cli-1792455798006-einjxi  Agent: build  Model: gemini-2.5-flash
+Type /help for slash commands, /exit to quit.
+
+soryos › refactor the auth module
+● Agent started
+...
+✔ Task finished (3 steps, 5 tools)
+
+soryos › /model gemini-2.5-flash
+✔ Model set to gemini-2.5-flash
+
+soryos › /exit
+```
+
+- Prompt `soryos ›`, **history** with the up/down arrows (100 entries)
+- `Ctrl+C` clears the current line, exits on an empty line (code `130`) · `Ctrl+D` exits (`0`)
+- Slash commands: `/help` `/exit` `/new` `/model` `/agent` `/sessions` `/clear`
+- Every turn is persisted to `.soryos/cli-sessions/<id>.json`
+- Refused honestly outside a TTY (no silent fallback)
+
 ### Output Conventions (opencode-style)
 - **stdout = DATA only** (NDJSON `--format json`, lists, exports)
 - **stderr = chrome** (progress, errors, human rendering)
 - **Exit codes**: `0` ok · `1` error · `130` SIGINT
 - **`--format json`** → NDJSON events with `{type, timestamp, sessionId, ...}` envelope
 
-### `run` Flags
+### `run` / `interactive` Flags
 
 | Flag | Alias | Description |
 |------|-------|-------------|
@@ -368,19 +401,19 @@ npx tsx packages/cli/src/index.ts debug config
 ### Shared Engine with the Web App
 
 ```
-CLI run → @soryos/agent (agentRuntime.run) → @soryos/tool → @soryos/execution → @soryos/bus → events
-Web run → @soryos/agent (agentRuntime.run) → @soryos/tool → @soryos/execution → @soryos/bus → SSE routes
+CLI run/interactive → @soryos/agent (runPipeline) → @soryos/tool → @soryos/execution → @soryos/bus → events
+Web run/messages    → @soryos/agent (runPipeline) → @soryos/tool → @soryos/execution → @soryos/bus → SSE routes
 ```
 
-Both call `agentRuntime.run()` with the same `AgentRunOptions` shape. The only difference is the event sink. See `packages/cli/AGENTS.md` for full details.
+`runPipeline()` (in `@soryos/agent`) is the single place that prepares the session, appends the user message and calls `agentRuntime.run()`. The only difference is the event sink. See `packages/cli/AGENTS.md` for full details.
 
-### Future: Shared CLI/GUI Interface
-The next phase is to extract a shared interface layer that both the CLI and the web app can use, so they look and behave the same:
-1. Extract `run` logic into a reusable function in `@soryos/agent` that accepts an event sink callback
-2. Make the CLI a thin adapter that calls the shared `run` function and renders events to the terminal
-3. Make the web app use the same `run` function and render events to SSE
-4. Shared session resolution (`--session/--continue/--fork`) in `@soryos/session`
-5. Shared output formatting — the NDJSON event format is already the same for both CLI (`--format json`) and web (SSE events)
+### Shared CLI/GUI Interface — roadmap
+`docs/plans/cli-gui-shared-interface.md`:
+1. ✅ Extract `run` logic into `@soryos/agent` (`runPipeline`) — Phase 1 done
+2. ✅ Make the CLI a thin adapter over it (`framework/engine.ts` + `framework/render.ts`)
+3. ✅ Make the web app use the same function and render events to SSE
+4. ⏳ Shared session resolution (`--session/--continue/--fork`) in `@soryos/session` — Phase 2
+5. ⏳ Canonical event contract + questions/permissions parity — Phase 3
 
 ## What's Ported from OpenCode
 
