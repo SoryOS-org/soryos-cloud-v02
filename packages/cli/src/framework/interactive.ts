@@ -64,15 +64,44 @@ function availableModels(): Array<{
   providerId: string;
   providerName: string;
   description: string;
+  badge?: string;
+  isFree?: boolean;
+  isDefault?: boolean;
 }> {
-  const out: Array<{ id: string; name: string; providerId: string; providerName: string; description: string }> = [];
+  const out: Array<{
+    id: string;
+    name: string;
+    providerId: string;
+    providerName: string;
+    description: string;
+    badge?: string;
+    isFree?: boolean;
+    isDefault?: boolean;
+  }> = [];
+
   for (const provider of aiProviderRegistry.getAllProviders()) {
-    let models: Array<{ id: string; name: string; description?: string }> = [];
+    let models: Array<{
+      id: string;
+      name: string;
+      description?: string;
+      badge?: string;
+      isFree?: boolean;
+    }> = [];
     try {
-      models = provider.listModels() as Array<{ id: string; name: string; description?: string }>;
+      models = provider.listModels() as typeof models;
     } catch {
       models = [];
     }
+    // Un provider sans modèle n'apparaît pas (rien à sélectionner).
+    if (!models.length) continue;
+
+    let defaultModel = "";
+    try {
+      defaultModel = provider.getDefaultModel();
+    } catch {
+      defaultModel = "";
+    }
+
     for (const model of models) {
       out.push({
         id: model.id,
@@ -80,6 +109,9 @@ function availableModels(): Array<{
         providerId: String(provider.id),
         providerName: provider.name,
         description: model.description ?? "",
+        badge: model.badge,
+        isFree: model.isFree,
+        isDefault: model.id === defaultModel,
       });
     }
   }
@@ -144,7 +176,15 @@ async function handleSlash(
           options: models.map((m) => ({
             value: m.id,
             title: m.name,
-            description: `${m.providerName} · ${m.id}${m.id === current ? " (current)" : ""}`,
+            description: [
+              `${m.providerName} · ${m.id}`,
+              m.badge ? `[${m.badge}]` : undefined,
+              m.isFree ? "free" : undefined,
+              m.isDefault ? "★" : undefined,
+              m.id === current ? "(current)" : undefined,
+            ]
+              .filter(Boolean)
+              .join(" "),
             category: m.providerName,
           })),
           hint: "↑/↓ navigate · type to filter · enter select · esc cancel",

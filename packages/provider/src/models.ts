@@ -196,7 +196,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "claude-3-5-sonnet",
+    id: "claude-3-5-sonnet-20250620",
     name: "Claude 3.5 Sonnet",
     providerId: "anthropic",
     providerName: "Anthropic Claude",
@@ -292,6 +292,17 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
   // DEEPSEEK (Séries V3 & R1)
   // =========================================================================
   {
+    id: "deepseek-chat",
+    name: "DeepSeek Chat",
+    providerId: "deepseek",
+    providerName: "DeepSeek",
+    isFree: false,
+    badge: "Par défaut",
+    description: "Modèle de chat généraliste de DeepSeek, utilisé par défaut par le provider.",
+    contextLength: "64k tokens",
+    supportsTools: true,
+  },
+  {
     id: "deepseek-r1",
     name: "DeepSeek R1",
     providerId: "deepseek",
@@ -328,6 +339,16 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
   // =========================================================================
   // OPENCODE ZEN (Accès Public et Modèles Open-Weights)
   // =========================================================================
+  {
+    id: "opencode-zen-3.5",
+    name: "OpenCode Zen 3.5",
+    providerId: "opencode-zen",
+    providerName: "OpenCode Zen",
+    isFree: false,
+    badge: "Par défaut",
+    description: "Modèle par défaut de la passerelle OpenCode Zen.",
+    supportsTools: true,
+  },
   {
     id: "opencode-zen-qwen-coder",
     name: "Qwen 2.5 Coder 32B (Zen)",
@@ -377,6 +398,17 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
+    id: "mistral-large-2407",
+    name: "Mistral Large (24.07)",
+    providerId: "mistral",
+    providerName: "Mistral AI",
+    isFree: false,
+    badge: "Stable",
+    description: "Version stable de Mistral Large, utilisée par défaut par le provider.",
+    contextLength: "128k tokens",
+    supportsTools: true,
+  },
+  {
     id: "mistral-large-2411",
     name: "Mistral Large 2 (24.11)",
     providerId: "mistral",
@@ -403,7 +435,18 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
   // OPENROUTER (Modèles Gratuits / Free Tier)
   // =========================================================================
   {
-    id: "openrouter/deepseek/deepseek-r1:free",
+    id: "openai/gpt-4o-mini",
+    name: "GPT-4o Mini (OpenRouter)",
+    providerId: "openrouter",
+    providerName: "OpenRouter",
+    isFree: false,
+    badge: "Par défaut",
+    description: "Modèle par défaut de la passerelle OpenRouter.",
+    contextLength: "128k tokens",
+    supportsTools: true,
+  },
+  {
+    id: "deepseek/deepseek-r1:free",
     name: "DeepSeek R1 (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -414,7 +457,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/deepseek/deepseek-chat:free",
+    id: "deepseek/deepseek-chat:free",
     name: "DeepSeek V3 (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -425,7 +468,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+    id: "meta-llama/llama-3.3-70b-instruct:free",
     name: "Llama 3.3 70B (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -436,7 +479,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/qwen/qwen-2.5-coder-32b-instruct:free",
+    id: "qwen/qwen-2.5-coder-32b-instruct:free",
     name: "Qwen 2.5 Coder 32B (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -447,7 +490,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/google/gemini-2.0-flash-exp:free",
+    id: "google/gemini-2.0-flash-exp:free",
     name: "Gemini 2.0 Flash Exp (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -458,7 +501,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/google/gemini-2.0-flash-thinking-exp:free",
+    id: "google/gemini-2.0-flash-thinking-exp:free",
     name: "Gemini 2.0 Flash Thinking (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -469,7 +512,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/mistralai/mistral-small-24b-instruct-2501:free",
+    id: "mistralai/mistral-small-24b-instruct-2501:free",
     name: "Mistral Small 24B (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -480,7 +523,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/meta-llama/llama-3.2-3b-instruct:free",
+    id: "meta-llama/llama-3.2-3b-instruct:free",
     name: "Llama 3.2 3B (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -491,7 +534,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/meta-llama/llama-3.2-1b-instruct:free",
+    id: "meta-llama/llama-3.2-1b-instruct:free",
     name: "Llama 3.2 1B (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -502,7 +545,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/google/gemini-2.0-pro-exp-02-05:free",
+    id: "google/gemini-2.0-pro-exp-02-05:free",
     name: "Gemini 2.0 Pro Exp (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -513,7 +556,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/qwen/qwen-2.5-72b-instruct:free",
+    id: "qwen/qwen-2.5-72b-instruct:free",
     name: "Qwen 2.5 72B (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -524,7 +567,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/deepseek/deepseek-r1-distill-llama-70b:free",
+    id: "deepseek/deepseek-r1-distill-llama-70b:free",
     name: "DeepSeek R1 Distill Llama 70B (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -535,7 +578,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/deepseek/deepseek-r1-distill-qwen-32b:free",
+    id: "deepseek/deepseek-r1-distill-qwen-32b:free",
     name: "DeepSeek R1 Distill Qwen 32B (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -546,7 +589,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/nousresearch/hermes-3-llama-3.1-405b:free",
+    id: "nousresearch/hermes-3-llama-3.1-405b:free",
     name: "Hermes 3 405B (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -557,7 +600,7 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     supportsTools: true,
   },
   {
-    id: "openrouter/cognitivecomputations/dolphin3.0-r1-mistral-24b:free",
+    id: "cognitivecomputations/dolphin3.0-r1-mistral-24b:free",
     name: "Dolphin 3.0 R1 Mistral (OpenRouter Free)",
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -565,6 +608,53 @@ export const SUPPORTED_AI_MODELS: ModelInfo[] = [
     badge: "Free Tier",
     description: "Modèle de raisonnement autonome sans filtre entraîné sur l'architecture Mistral 24B.",
     contextLength: "32k tokens",
+    supportsTools: true,
+  },
+  // =========================================================================
+  // xAI GROK
+  // =========================================================================
+  {
+    id: "grok-2",
+    name: "Grok 2",
+    providerId: "grok",
+    providerName: "Grok",
+    isFree: false,
+    badge: "Raisonnement",
+    description: "Modèle de xAI avec raisonnement approfondi et intégration d'outils en temps réel.",
+    contextLength: "131k tokens",
+    supportsTools: true,
+  },
+  {
+    id: "grok-beta",
+    name: "Grok Beta",
+    providerId: "grok",
+    providerName: "Grok",
+    isFree: false,
+    badge: "Bêta",
+    description: "Version bêta de Grok : plus rapide, réponses plus directes.",
+    supportsTools: true,
+  },
+  // =========================================================================
+  // CURSOR
+  // =========================================================================
+  {
+    id: "cursor-small",
+    name: "Cursor Small",
+    providerId: "cursor",
+    providerName: "Cursor",
+    isFree: false,
+    badge: "Rapide",
+    description: "Modèle léger de Cursor, optimisé pour l'édition rapide de code.",
+    supportsTools: true,
+  },
+  {
+    id: "cursor-fast",
+    name: "Cursor Fast",
+    providerId: "cursor",
+    providerName: "Cursor",
+    isFree: false,
+    badge: "Équilibré",
+    description: "Modèle Cursor équilibré entre vitesse et qualité de code.",
     supportsTools: true,
   },
 ];

@@ -4,10 +4,21 @@
 This package manages multi-model AI providers and credential resolution.
 
 ## Supported Providers
-- **Google Gemini**: `gemini-2.5-flash`, `gemini-2.5-pro`
-- **OpenAI**: `gpt-4o`, `gpt-4o-mini`, `o1`, `o3-mini`
-- **Mistral AI**: `codestral-latest`, `mistral-large-latest`
-- **OpenCode Zen / DeepSeek / Grok**
+- **Google Gemini** (15 modèles), **OpenRouter** (16), **OpenAI** (5), **Anthropic** (4),
+  **Mistral AI** (3), **DeepSeek** (4), **OpenCode Zen** (4), **Grok** (2), **Cursor** (2)
+  → **56 modèles** au total, tous listés dans `SUPPORTED_AI_MODELS`.
+
+`SUPPORTED_AI_MODELS` est la **source unique** du catalogue : la commande
+`soryos-code models`, le picker `/model` et l'outil `models` de l'agent
+lisent tous ce catalogue (via `listModels()` des providers). Plus de liste
+dupliquée ailleurs.
+
+### Règles du catalogue
+- L'**id d'un modèle est l'id API réel** : il est envoyé tel quel à l'API du
+  provider (ex. OpenRouter attend `openai/gpt-4o-mini`, **pas**
+  `openrouter/openai/gpt-4o-mini`).
+- Le `getDefaultModel()` de chaque provider doit exister dans le catalogue
+  (garanti par `packages/tool/__tests__/model-catalog.test.ts`).
 
 ## Responsibilities
 - Provide `AIProviderRegistry` (`aiProviderRegistry`).

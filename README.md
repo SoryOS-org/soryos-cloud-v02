@@ -417,6 +417,17 @@ Analyse de la demande…
 - Chaque tour est persisté dans `.soryos/cli-sessions/<id>.json`
 - Refusé honnêtement hors TTY (pas de repli silencieux)
 
+### Models
+
+```bash
+soryos-code models              # the 56 models of the registry, grouped by provider
+```
+
+One single source of truth: `@soryos/provider`'s `SUPPORTED_AI_MODELS`
+(15 Google · 16 OpenRouter · 5 OpenAI · 4 Anthropic · 4 DeepSeek · 3 Mistral
+· 4 OpenCode Zen · 2 Grok · 2 Cursor). The `models` command, the `/model`
+picker and the agent's `models` tool all read it.
+
 ### Provider credentials (`soryos-code auth`)
 
 ```bash

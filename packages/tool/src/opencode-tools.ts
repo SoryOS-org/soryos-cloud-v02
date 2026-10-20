@@ -5,6 +5,7 @@
 
 import { globalEventBus } from "@soryos/bus";
 import { sessionStore } from "@soryos/session";
+import { aiProviderRegistry, type ModelInfo as ProviderModelInfo } from "@soryos/provider";
 import { resolve } from "node:path";
 import { existsSync, statSync } from "node:fs";
 
@@ -23,18 +24,30 @@ export interface ModelInfo {
 }
 
 /**
- * Built-in model registry.
- * In a full implementation, this would come from the provider registry.
+ * Registre des modèles : SOURCE UNIQUE = `@soryos/provider`
+ * (`SUPPORTED_AI_MODELS` via les providers enregistrés). Plus de liste
+ * dupliquée ici : un catalogue local finit toujours par être périmé.
  */
-const AVAILABLE_MODELS: ModelInfo[] = [
-  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "google", description: "Fast and efficient model for most tasks" },
-  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", provider: "google", description: "Advanced reasoning and coding" },
-  { id: "gpt-4o", name: "GPT-4o", provider: "openai", description: "Multimodal flagship model" },
-  { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", description: "Fast and cost-effective" },
-  { id: "claude-sonnet-4", name: "Claude Sonnet 4", provider: "anthropic", description: "Balanced performance and cost" },
-  { id: "claude-opus-4", name: "Claude Opus 4", provider: "anthropic", description: "Most capable Claude model" },
-  { id: "mistral-large", name: "Mistral Large", provider: "mistral", description: "European flagship model" },
-];
+function registryModels(): ModelInfo[] {
+  const out: ModelInfo[] = [];
+  for (const provider of aiProviderRegistry.getAllProviders()) {
+    let models: ProviderModelInfo[] = [];
+    try {
+      models = provider.listModels() as ProviderModelInfo[];
+    } catch {
+      models = [];
+    }
+    for (const model of models) {
+      out.push({
+        id: model.id,
+        name: model.name,
+        provider: String(provider.id),
+        description: model.description,
+      });
+    }
+  }
+  return out;
+}
 
 export interface ModelPage {
   providers: { id: string; name: string; models: ModelInfo[] }[];
@@ -47,7 +60,7 @@ export function searchModels(
   provider?: string,
   opts?: { all?: boolean; limit?: number; offset?: number },
 ): { models: ModelInfo[]; total: number } {
-  let models = AVAILABLE_MODELS;
+  let models = registryModels();
 
   if (provider) {
     const lower = provider.toLowerCase();
